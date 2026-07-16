@@ -255,12 +255,9 @@ private struct ProfileTabView: View {
                                     Text(user.email)
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
-                                    Label(
-                                        user.emailVerified ? "Email подтверждён" : "Email пока не подтверждён",
-                                        systemImage: user.emailVerified ? "checkmark.seal.fill" : "exclamationmark.circle.fill"
-                                    )
+                                    Label("Email подтверждён", systemImage: "checkmark.seal.fill")
                                     .font(.footnote.weight(.medium))
-                                    .foregroundStyle(user.emailVerified ? .green : .orange)
+                                    .foregroundStyle(.green)
                                 }
                                 Spacer(minLength: 0)
                             }

@@ -8,6 +8,7 @@ use rand::Rng;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
+use tracing::warn;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -63,6 +64,21 @@ pub struct LogoutRequest {
 pub struct VerifyEmailRequest {
     pub email: String,
     pub code: String,
+    pub device: DeviceRequest,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgotPasswordRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetPasswordRequest {
+    pub email: String,
+    pub code: String,
+    pub password: String,
     pub device: DeviceRequest,
 }
 
@@ -229,12 +245,21 @@ async fn create_session(
 }
 
 async fn issue_email_code(
-    tx: &mut Transaction<'_, Postgres>, state: &AppState, user_id: Uuid, purpose: &str,
+    tx: &mut Transaction<'_, Postgres>,
+    state: &AppState,
+    user_id: Uuid,
+    purpose: &str,
 ) -> Result<(String, DateTime<Utc>), AppError> {
     let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
     let expires_at = Utc::now() + Duration::seconds(state.config.email_code_ttl_seconds);
-    sqlx::query("DELETE FROM email_codes WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL")
-        .bind(user_id).bind(purpose).execute(&mut **tx).await.map_err(AppError::internal)?;
+    sqlx::query(
+        "DELETE FROM email_codes WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL",
+    )
+    .bind(user_id)
+    .bind(purpose)
+    .execute(&mut **tx)
+    .await
+    .map_err(AppError::internal)?;
     sqlx::query("INSERT INTO email_codes (id, user_id, purpose, code_hash, expires_at) VALUES ($1, $2, $3, $4, $5)")
         .bind(Uuid::new_v4()).bind(user_id).bind(purpose)
         .bind(refresh_token_hash(&code, &state.config.jwt_refresh_secret)).bind(expires_at)
@@ -242,35 +267,88 @@ async fn issue_email_code(
     Ok((code, expires_at))
 }
 
-async fn send_resend_code(state: &AppState, email: &str, code: &str, title: &str) -> Result<(), AppError> {
-    let key = state.config.resend_api_key.as_deref().ok_or_else(AppError::service_unavailable)?;
-    let from = state.config.resend_from_email.as_deref().ok_or_else(AppError::service_unavailable)?;
+async fn send_resend_code(
+    state: &AppState,
+    email: &str,
+    code: &str,
+    title: &str,
+) -> Result<(), AppError> {
+    let key = state.config.resend_api_key.as_deref().ok_or_else(|| {
+        warn!("Resend is not configured: RESEND_API_KEY is missing");
+        AppError::service_unavailable()
+    })?;
+    let from = state.config.resend_from_email.as_deref().ok_or_else(|| {
+        warn!("Resend is not configured: RESEND_FROM_EMAIL is missing");
+        AppError::service_unavailable()
+    })?;
     let body = serde_json::json!({
         "from": from, "to": [email], "subject": title,
         "html": format!("<p>Ваш код GoNow: <strong style=\"font-size:24px;letter-spacing:4px\">{code}</strong></p><p>Код действует 10 минут. Никому его не сообщайте.</p>"),
         "text": format!("Ваш код GoNow: {code}. Код действует 10 минут. Никому его не сообщайте.")
     });
-    reqwest::Client::new().post("https://api.resend.com/emails")
-        .bearer_auth(key).json(&body).send().await
-        .map_err(|_| AppError::service_unavailable())?
-        .error_for_status().map_err(|_| AppError::service_unavailable())?;
+    let response = reqwest::Client::new()
+        .post("https://api.resend.com/emails")
+        .bearer_auth(key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| {
+            warn!(error = %error, "Resend request failed");
+            AppError::service_unavailable()
+        })?;
+
+    if !response.status().is_success() {
+        let resend_status = response.status();
+        let resend_error = response.text().await.unwrap_or_default();
+        warn!(
+            %resend_status,
+            resend_error = %resend_error.chars().take(500).collect::<String>(),
+            "Resend rejected the email"
+        );
+        return Err(AppError::service_unavailable());
+    }
+
     Ok(())
 }
 
-async fn consume_email_code(tx: &mut Transaction<'_, Postgres>, state: &AppState, user_id: Uuid, purpose: &str, code: &str) -> Result<(), AppError> {
+async fn consume_email_code(
+    tx: &mut Transaction<'_, Postgres>,
+    state: &AppState,
+    user_id: Uuid,
+    purpose: &str,
+    code: &str,
+) -> Result<(), AppError> {
     let row: Option<(Uuid, String, DateTime<Utc>, i32)> = sqlx::query_as("SELECT id, code_hash, expires_at, attempts FROM email_codes WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1 FOR UPDATE")
         .bind(user_id).bind(purpose).fetch_optional(&mut **tx).await.map_err(AppError::internal)?;
-    let Some((id, hash, expires_at, attempts)) = row else { return Err(AppError::unauthorized("INVALID_EMAIL_CODE", "Код недействителен")); };
-    if expires_at <= Utc::now() || attempts >= 5 { return Err(AppError::unauthorized("INVALID_EMAIL_CODE", "Код истёк или недействителен")); }
+    let Some((id, hash, expires_at, attempts)) = row else {
+        return Err(AppError::unauthorized(
+            "INVALID_EMAIL_CODE",
+            "Код недействителен",
+        ));
+    };
+    if expires_at <= Utc::now() || attempts >= 5 {
+        return Err(AppError::unauthorized(
+            "INVALID_EMAIL_CODE",
+            "Код истёк или недействителен",
+        ));
+    }
     if refresh_token_hash(code, &state.config.jwt_refresh_secret) != hash {
-        sqlx::query("UPDATE email_codes SET attempts = attempts + 1 WHERE id = $1").bind(id).execute(&mut **tx).await.map_err(AppError::internal)?;
+        sqlx::query("UPDATE email_codes SET attempts = attempts + 1 WHERE id = $1")
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .map_err(AppError::internal)?;
         return Err(AppError::unauthorized("INVALID_EMAIL_CODE", "Неверный код"));
     }
-    sqlx::query("UPDATE email_codes SET consumed_at = NOW() WHERE id = $1").bind(id).execute(&mut **tx).await.map_err(AppError::internal)?;
+    sqlx::query("UPDATE email_codes SET consumed_at = NOW() WHERE id = $1")
+        .bind(id)
+        .execute(&mut **tx)
+        .await
+        .map_err(AppError::internal)?;
     Ok(())
 }
 
-#[utoipa::path(post, path = "/api/v1/auth/register", tag = "authentication", request_body = RegisterRequest, responses((status = 201, body = AuthData), (status = 409, description = "Email is already registered"), (status = 422, description = "Validation failed")))]
+#[utoipa::path(post, path = "/api/v1/auth/register", tag = "authentication", request_body = RegisterRequest, responses((status = 201, body = RegistrationData), (status = 200, description = "A verification code was re-sent", body = RegistrationData), (status = 409, description = "Email is already verified"), (status = 422, description = "Validation failed")))]
 pub async fn register(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -293,15 +371,33 @@ pub async fn register(
     )
     .await?;
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
-    let password_hash = hash_password(&request.password)?;
-    let user = sqlx::query_as::<_, UserRow>("INSERT INTO users (id, email, password_hash, display_name) VALUES ($1, $2, $3, $4) RETURNING id, email, display_name, status, email_verified, created_at")
-        .bind(Uuid::new_v4()).bind(&email).bind(password_hash).bind(request.display_name.trim())
-        .fetch_one(&mut *tx).await.map_err(|error| if is_unique_violation(&error) { AppError { status: StatusCode::CONFLICT, code: "EMAIL_ALREADY_EXISTS", message: "Пользователь с таким email уже зарегистрирован".into(), fields: Some(serde_json::json!({"email":"Этот email уже используется"})) } } else { AppError::internal(error) })?;
+    let existing: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, created_at FROM users WHERE email = $1 FOR UPDATE")
+        .bind(&email)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(AppError::internal)?;
+    let (user, status) = if let Some(user) = existing {
+        if user.email_verified {
+            return Err(AppError {
+                status: StatusCode::CONFLICT,
+                code: "EMAIL_ALREADY_EXISTS",
+                message: "Пользователь с таким email уже зарегистрирован".into(),
+                fields: Some(serde_json::json!({"email":"Этот email уже используется"})),
+            });
+        }
+        (user, StatusCode::OK)
+    } else {
+        let password_hash = hash_password(&request.password)?;
+        let user = sqlx::query_as::<_, UserRow>("INSERT INTO users (id, email, password_hash, display_name) VALUES ($1, $2, $3, $4) RETURNING id, email, display_name, status, email_verified, created_at")
+            .bind(Uuid::new_v4()).bind(&email).bind(password_hash).bind(request.display_name.trim())
+            .fetch_one(&mut *tx).await.map_err(|error| if is_unique_violation(&error) { AppError { status: StatusCode::CONFLICT, code: "EMAIL_ALREADY_EXISTS", message: "Пользователь с таким email уже зарегистрирован".into(), fields: Some(serde_json::json!({"email":"Этот email уже используется"})) } } else { AppError::internal(error) })?;
+        (user, StatusCode::CREATED)
+    };
     let (code, expires_at) = issue_email_code(&mut tx, &state, user.id, "verify_email").await?;
     tx.commit().await.map_err(AppError::internal)?;
     send_resend_code(&state, &email, &code, "Код подтверждения GoNow").await?;
     Ok((
-        StatusCode::CREATED,
+        status,
         Json(ApiResponse::new(RegistrationData {
             email,
             verification_required: true,
@@ -311,16 +407,138 @@ pub async fn register(
 }
 
 #[utoipa::path(post, path = "/api/v1/auth/verify-email", tag = "authentication", request_body = VerifyEmailRequest, responses((status = 200, body = AuthData), (status = 401, description = "Invalid email code")))]
-pub async fn verify_email(State(state): State<AppState>, Json(request): Json<VerifyEmailRequest>) -> Result<Json<ApiResponse<AuthData>>, AppError> {
+pub async fn verify_email(
+    State(state): State<AppState>,
+    Json(request): Json<VerifyEmailRequest>,
+) -> Result<Json<ApiResponse<AuthData>>, AppError> {
     let email = normalized_email(&request.email);
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
     let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, created_at FROM users WHERE email = $1 FOR UPDATE").bind(&email).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
-    let user = user.ok_or_else(|| AppError::unauthorized("INVALID_EMAIL_CODE", "Код недействителен"))?;
+    let mut user =
+        user.ok_or_else(|| AppError::unauthorized("INVALID_EMAIL_CODE", "Код недействителен"))?;
     consume_email_code(&mut tx, &state, user.id, "verify_email", &request.code).await?;
-    sqlx::query("UPDATE users SET email_verified = TRUE WHERE id = $1").bind(user.id).execute(&mut *tx).await.map_err(AppError::internal)?;
+    sqlx::query("UPDATE users SET email_verified = TRUE WHERE id = $1")
+        .bind(user.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(AppError::internal)?;
+    user.email_verified = true;
     let tokens = create_session(&mut tx, &state, user.id, &request.device).await?;
     tx.commit().await.map_err(AppError::internal)?;
-    Ok(Json(ApiResponse::new(AuthData { user: user.into(), tokens })))
+    Ok(Json(ApiResponse::new(AuthData {
+        user: user.into(),
+        tokens,
+    })))
+}
+
+#[utoipa::path(post, path = "/api/v1/auth/forgot-password", tag = "authentication", request_body = ForgotPasswordRequest, responses((status = 202, description = "Password reset request was accepted"), (status = 422, description = "Validation failed"), (status = 429, description = "Too many requests")))]
+pub async fn forgot_password(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<ForgotPasswordRequest>,
+) -> Result<(StatusCode, Json<ApiResponse<serde_json::Value>>), AppError> {
+    let email = normalized_email(&request.email);
+    if !email.contains('@') || email.len() > 254 {
+        return Err(AppError::validation(serde_json::json!({
+            "email": "Введите корректный email"
+        })));
+    }
+    enforce_rate_limit(
+        &state,
+        format!("ratelimit:password-reset:{}:{}", client_ip(&headers), email),
+        state.config.rate_limit_login_max,
+    )
+    .await?;
+
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
+    let user: Option<UserRow> = sqlx::query_as(
+        "SELECT id, email, display_name, status, email_verified, created_at FROM users WHERE email = $1 FOR UPDATE",
+    )
+    .bind(&email)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(AppError::internal)?;
+
+    let code_data =
+        if let Some(user) = user.filter(|user| user.email_verified && user.status == "active") {
+            Some(issue_email_code(&mut tx, &state, user.id, "reset_password").await?)
+        } else {
+            None
+        };
+    tx.commit().await.map_err(AppError::internal)?;
+
+    if let Some((code, _)) = code_data {
+        send_resend_code(&state, &email, &code, "Код восстановления пароля GoNow").await?;
+    }
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(ApiResponse::new(serde_json::json!({}))),
+    ))
+}
+
+#[utoipa::path(post, path = "/api/v1/auth/reset-password", tag = "authentication", request_body = ResetPasswordRequest, responses((status = 200, body = AuthData), (status = 401, description = "Invalid reset code"), (status = 422, description = "Validation failed")))]
+pub async fn reset_password(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<ResetPasswordRequest>,
+) -> Result<Json<ApiResponse<AuthData>>, AppError> {
+    let email = normalized_email(&request.email);
+    if let Some(error) = validation_error(
+        &email,
+        &request.password,
+        None,
+        &request.device,
+        state.config.password_min_length,
+    ) {
+        return Err(error);
+    }
+    enforce_rate_limit(
+        &state,
+        format!("ratelimit:reset-password:{}:{}", client_ip(&headers), email),
+        state.config.rate_limit_login_max,
+    )
+    .await?;
+
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
+    let user: Option<UserRow> = sqlx::query_as(
+        "SELECT id, email, display_name, status, email_verified, created_at FROM users WHERE email = $1 FOR UPDATE",
+    )
+    .bind(&email)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(AppError::internal)?;
+    let user =
+        user.ok_or_else(|| AppError::unauthorized("INVALID_RESET_CODE", "Код недействителен"))?;
+    if !user.email_verified || user.status != "active" {
+        return Err(AppError::unauthorized(
+            "INVALID_RESET_CODE",
+            "Код недействителен",
+        ));
+    }
+    consume_email_code(&mut tx, &state, user.id, "reset_password", &request.code).await?;
+
+    let password_hash = hash_password(&request.password)?;
+    sqlx::query("UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1")
+        .bind(user.id)
+        .bind(password_hash)
+        .execute(&mut *tx)
+        .await
+        .map_err(AppError::internal)?;
+    sqlx::query(
+        "UPDATE refresh_sessions SET revoked_at = COALESCE(revoked_at, NOW()) WHERE user_id = $1",
+    )
+    .bind(user.id)
+    .execute(&mut *tx)
+    .await
+    .map_err(AppError::internal)?;
+    let tokens = create_session(&mut tx, &state, user.id, &request.device).await?;
+    tx.commit().await.map_err(AppError::internal)?;
+
+    Ok(Json(ApiResponse::new(AuthData {
+        user: user.into(),
+        tokens,
+    })))
 }
 
 #[utoipa::path(post, path = "/api/v1/auth/login", tag = "authentication", request_body = LoginRequest, responses((status = 200, body = AuthData), (status = 401, description = "Invalid credentials"), (status = 422, description = "Validation failed")))]
@@ -349,6 +567,14 @@ pub async fn login(
     let user = user.ok_or_else(invalid_credentials)?;
     if !verify_password(&request.password, &user.password_hash) {
         return Err(invalid_credentials());
+    }
+    if !user.email_verified {
+        return Err(AppError {
+            status: StatusCode::FORBIDDEN,
+            code: "EMAIL_NOT_VERIFIED",
+            message: "Подтвердите email кодом из письма".into(),
+            fields: None,
+        });
     }
     if user.status != "active" {
         return Err(AppError {

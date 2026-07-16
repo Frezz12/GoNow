@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use axum::{
     Router,
@@ -14,6 +14,7 @@ use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     trace::TraceLayer,
 };
+use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 use uuid::Uuid;
@@ -60,8 +61,8 @@ impl AppState {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(auth::register, auth::login, auth::refresh, auth::logout, users::me, health),
-    components(schemas(auth::RegisterRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, crate::shared::response::ErrorEnvelope)),
+    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, health),
+    components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, crate::shared::response::ErrorEnvelope)),
     tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"))
 )]
 struct ApiDoc;
@@ -81,6 +82,8 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/v1/auth/register", post(auth::register))
         .route("/api/v1/auth/verify-email", post(auth::verify_email))
+        .route("/api/v1/auth/forgot-password", post(auth::forgot_password))
+        .route("/api/v1/auth/reset-password", post(auth::reset_password))
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/refresh", post(auth::refresh))
         .route("/api/v1/auth/logout", post(auth::logout))
@@ -93,6 +96,9 @@ pub fn router(state: AppState) -> Router {
 }
 
 async fn request_id(mut request: Request, next: Next) -> Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let started_at = Instant::now();
     let request_id = request
         .headers()
         .get("x-request-id")
@@ -106,6 +112,15 @@ async fn request_id(mut request: Request, next: Next) -> Response {
             response.headers_mut().insert("x-request-id", value);
         }
     }
+    info!(
+        method = %method,
+        path = %uri.path(),
+        query = ?uri.query(),
+        status = response.status().as_u16(),
+        latency_ms = started_at.elapsed().as_millis(),
+        %request_id,
+        "HTTP request completed"
+    );
     response
 }
 

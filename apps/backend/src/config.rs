@@ -56,8 +56,12 @@ impl Config {
             rate_limit_login_max: parse("RATE_LIMIT_LOGIN_MAX", "10")?,
             rate_limit_refresh_max: parse("RATE_LIMIT_REFRESH_MAX", "30")?,
             rate_limit_window_seconds: parse("RATE_LIMIT_WINDOW_SECONDS", "900")?,
-            resend_api_key: env::var("RESEND_API_KEY").ok().filter(|value| !value.is_empty()),
-            resend_from_email: env::var("RESEND_FROM_EMAIL").ok().filter(|value| !value.is_empty()),
+            resend_api_key: env::var("RESEND_API_KEY")
+                .ok()
+                .filter(|value| !value.is_empty()),
+            resend_from_email: env::var("RESEND_FROM_EMAIL")
+                .ok()
+                .filter(|value| !value.is_empty()),
             email_code_ttl_seconds: parse("EMAIL_CODE_TTL_SECONDS", "600")?,
         })
     }

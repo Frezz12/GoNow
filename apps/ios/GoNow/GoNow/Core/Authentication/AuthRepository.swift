@@ -29,6 +29,16 @@ final class AuthRepository {
         return response.data.user
     }
 
+    func requestPasswordReset(email: String) async throws {
+        let _: APIEnvelope<EmptyResponse> = try await api.post("auth/forgot-password", body: ForgotPasswordPayload(email: email))
+    }
+
+    func resetPassword(email: String, code: String, password: String) async throws -> CurrentUser {
+        let response: APIEnvelope<AuthData> = try await api.post("auth/reset-password", body: ResetPasswordPayload(email: email, code: code, password: password, device: try deviceProvider.payload()))
+        try tokenStore.save(response.data.tokens)
+        return response.data.user
+    }
+
     func restore() async throws -> CurrentUser? {
         guard let tokens = try tokenStore.read() else { return nil }
         if tokens.accessTokenExpiresAt > Date() {

@@ -54,6 +54,17 @@ final class AppState: ObservableObject {
         phase = .authenticated
     }
 
+    func requestPasswordReset(email: String) async throws {
+        try await repository.requestPasswordReset(email: email)
+    }
+
+    func resetPassword(email: String, code: String, password: String) async throws {
+        let user = try await repository.resetPassword(email: email, code: code, password: password)
+        currentUser = user
+        sessionError = nil
+        phase = .authenticated
+    }
+
     func reloadUser() async {
         isRefreshingUser = true
         defer { isRefreshingUser = false }

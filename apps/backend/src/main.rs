@@ -16,7 +16,11 @@ async fn main() -> Result<(), String> {
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
-        .with(tracing_subscriber::fmt::layer().json())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .compact()
+                .with_target(false),
+        )
         .init();
 
     let config = config::Config::from_environment()?;
