@@ -1,0 +1,8 @@
+.env
+.env.local
+target/
+DerivedData/
+*.xcuserstate
+.DS_Store
+apps/backend/.sqlx/
+apps/ios/GoNow/build/
