@@ -160,23 +160,41 @@ private struct LiquidGlassFieldModifier: ViewModifier {
                 shape.strokeBorder(
                     isInvalid
                         ? AnyShapeStyle(Color.red.opacity(0.9))
-                        : isFocused
-                            ? AnyShapeStyle(LinearGradient(
-                                colors: [.white.opacity(0.96), GoNowTheme.accent.opacity(0.94), GoNowTheme.primary.opacity(0.92)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ))
-                            : AnyShapeStyle(LinearGradient(
-                                colors: [.white.opacity(0.82), GoNowTheme.primary.opacity(0.2)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )),
-                    lineWidth: isInvalid || isFocused ? 1.6 : 1
+                        : AnyShapeStyle(LinearGradient(
+                            colors: [.white.opacity(0.82), GoNowTheme.primary.opacity(0.2)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )),
+                    lineWidth: isInvalid ? 1.6 : 1
                 )
+            }
+            .overlay {
+                if isFocused && !isInvalid {
+                    FieldFocusGlow(shape: shape)
+                }
             }
             .shadow(color: isFocused ? .white.opacity(0.4) : .white.opacity(0.18), radius: isFocused ? 7 : 4, y: -1)
             .shadow(color: isFocused ? GoNowTheme.primary.opacity(0.3) : GoNowTheme.primary.opacity(0.1), radius: isFocused ? 16 : 10, y: 4)
             .animation(.easeOut(duration: 0.18), value: isFocused)
+    }
+}
+
+private struct FieldFocusGlow: View {
+    let shape: RoundedRectangle
+
+    var body: some View {
+        shape
+            .strokeBorder(
+                LinearGradient(
+                    colors: [GoNowTheme.primary, GoNowTheme.accent, Color(red: 0.39, green: 0.49, blue: 0.94), GoNowTheme.primary],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1.8
+            )
+            .shadow(color: GoNowTheme.primary.opacity(0.34), radius: 13, x: -8)
+            .shadow(color: Color(red: 0.39, green: 0.49, blue: 0.94).opacity(0.30), radius: 13, x: 8)
+            .shadow(color: GoNowTheme.accent.opacity(0.18), radius: 5)
     }
 }
 

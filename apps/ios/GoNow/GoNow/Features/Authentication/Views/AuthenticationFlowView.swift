@@ -49,7 +49,9 @@ private struct LoginView: View {
                 HStack(spacing: 4) {
                     Text("Впервые в GoNow?").foregroundStyle(.secondary)
                     Button("Создать аккаунт", action: onShowRegister)
-                        .buttonStyle(GlassInlineButtonStyle())
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(GoNowTheme.primary)
+                        .buttonStyle(.plain)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -114,7 +116,9 @@ private struct RegisterView: View {
                 HStack(spacing: 4) {
                     Text("Уже есть аккаунт?").foregroundStyle(.secondary)
                     Button("Войти", action: onShowLogin)
-                        .buttonStyle(GlassInlineButtonStyle())
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(GoNowTheme.primary)
+                        .buttonStyle(.plain)
                 }
                 .frame(maxWidth: .infinity)
             }
