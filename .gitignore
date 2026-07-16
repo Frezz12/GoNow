@@ -6,3 +6,8 @@ DerivedData/
 .DS_Store
 apps/backend/.sqlx/
 apps/ios/GoNow/build/
+
+# Android build artifacts
+apps/android/.gradle/
+apps/android/build/
+apps/android/app/build/
