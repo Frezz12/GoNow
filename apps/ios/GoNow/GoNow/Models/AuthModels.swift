@@ -34,6 +34,8 @@ struct LoginPayload: Codable, Sendable {
 
 struct RefreshPayload: Codable, Sendable { let refreshToken: String }
 struct LogoutPayload: Codable, Sendable { let refreshToken: String }
+struct VerifyEmailPayload: Codable, Sendable { let email: String; let code: String; let device: DevicePayload }
+struct RegistrationData: Codable, Sendable { let email: String; let verificationRequired: Bool; let expiresAt: Date }
 
 struct AuthData: Codable, Sendable {
     let user: CurrentUser

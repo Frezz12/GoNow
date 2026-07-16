@@ -12,8 +12,13 @@ final class AuthRepository {
         self.deviceProvider = deviceProvider
     }
 
-    func register(name: String, email: String, password: String) async throws -> CurrentUser {
-        let response: APIEnvelope<AuthData> = try await api.post("auth/register", body: RegisterPayload(email: email, password: password, displayName: name, device: try deviceProvider.payload()))
+    func register(name: String, email: String, password: String) async throws -> RegistrationData {
+        let response: APIEnvelope<RegistrationData> = try await api.post("auth/register", body: RegisterPayload(email: email, password: password, displayName: name, device: try deviceProvider.payload()))
+        return response.data
+    }
+
+    func verifyEmail(email: String, code: String) async throws -> CurrentUser {
+        let response: APIEnvelope<AuthData> = try await api.post("auth/verify-email", body: VerifyEmailPayload(email: email, code: code, device: try deviceProvider.payload()))
         try tokenStore.save(response.data.tokens)
         return response.data.user
     }

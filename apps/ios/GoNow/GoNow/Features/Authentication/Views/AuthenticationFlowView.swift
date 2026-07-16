@@ -91,6 +91,7 @@ private struct RegisterView: View {
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isPasswordFocused: Bool
     @FocusState private var isConfirmationFocused: Bool
+    @State private var verificationEmail: String?
     let onShowLogin: () -> Void
 
     var body: some View {
@@ -128,6 +129,9 @@ private struct RegisterView: View {
         }
         .navigationTitle("Регистрация")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: Binding(get: { verificationEmail != nil }, set: { if !$0 { verificationEmail = nil } })) {
+            if let verificationEmail { EmailVerificationSheet(email: verificationEmail) }
+        }
     }
 
     private func submit() {
@@ -142,10 +146,58 @@ private struct RegisterView: View {
         errorMessage = nil
         Task {
             defer { isLoading = false }
-            do { try await appState.register(name: name.trimmingCharacters(in: .whitespacesAndNewlines), email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password) }
+            do { verificationEmail = try await appState.register(name: name.trimmingCharacters(in: .whitespacesAndNewlines), email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password).email }
             catch let error as APIError { fieldErrors = error.fieldErrors; errorMessage = error.localizedDescription }
             catch { errorMessage = error.localizedDescription }
         }
+    }
+}
+
+private struct EmailVerificationSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let email: String
+    @State private var code = ""
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AuthBackdrop()
+                VStack(alignment: .leading, spacing: 20) {
+                    MapPointMarker(size: 62).frame(maxWidth: .infinity)
+                    Text("Подтвердите email").font(.title.bold())
+                    Text("Мы отправили шестизначный код на \(email).")
+                        .foregroundStyle(.secondary)
+                    TextField("000000", text: $code)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .focused($isFocused)
+                        .multilineTextAlignment(.center)
+                        .font(.title2.monospacedDigit().weight(.semibold))
+                        .padding(.horizontal, 16).frame(minHeight: 58)
+                        .liquidGlassField(isInvalid: errorMessage != nil, isFocused: isFocused)
+                        .accessibilityLabel("Шестизначный код подтверждения")
+                    if let errorMessage { ErrorMessage(text: errorMessage) }
+                    Button(isLoading ? "Проверяем…" : "Подтвердить") { verify() }
+                        .buttonStyle(GradientPrimaryButtonStyle())
+                        .disabled(isLoading || code.count != 6)
+                    Spacer()
+                }
+                .padding(24)
+            }
+            .navigationTitle("Подтверждение")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Позже") { dismiss() } } }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func verify() {
+        isLoading = true; errorMessage = nil
+        Task { defer { isLoading = false }; do { try await appState.verifyEmail(email: email, code: code); dismiss() } catch { errorMessage = error.localizedDescription } }
     }
 }
 

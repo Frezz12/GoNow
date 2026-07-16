@@ -43,8 +43,12 @@ final class AppState: ObservableObject {
         phase = .authenticated
     }
 
-    func register(name: String, email: String, password: String) async throws {
-        let user = try await repository.register(name: name, email: email, password: password)
+    func register(name: String, email: String, password: String) async throws -> RegistrationData {
+        try await repository.register(name: name, email: email, password: password)
+    }
+
+    func verifyEmail(email: String, code: String) async throws {
+        let user = try await repository.verifyEmail(email: email, code: code)
         currentUser = user
         sessionError = nil
         phase = .authenticated
