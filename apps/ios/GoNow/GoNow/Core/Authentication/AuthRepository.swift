@@ -54,6 +54,11 @@ final class AuthRepository {
         return response.data
     }
 
+    func updateProfile(_ payload: UpdateProfilePayload) async throws -> CurrentUser {
+        let response: APIEnvelope<CurrentUser> = try await api.patch("users/me", body: payload)
+        return response.data
+    }
+
     func logout() async {
         defer { try? tokenStore.delete() }
         guard let tokens = try? tokenStore.read() else { return }

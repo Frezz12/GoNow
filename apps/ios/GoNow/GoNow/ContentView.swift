@@ -8,7 +8,7 @@ struct ContentView: View {
             switch appState.phase {
             case .launching: LaunchView()
             case .unauthenticated: AuthenticationFlowView()
-            case .authenticated: AuthenticatedHomeView()
+            case .authenticated: MainTabView()
             }
         }
         .task { await appState.restoreSession() }

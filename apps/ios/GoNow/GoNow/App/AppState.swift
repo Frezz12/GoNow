@@ -72,6 +72,11 @@ final class AppState: ObservableObject {
         catch { sessionError = error.localizedDescription }
     }
 
+    func updateProfile(_ payload: UpdateProfilePayload) async throws {
+        currentUser = try await repository.updateProfile(payload)
+        sessionError = nil
+    }
+
     func dismissSessionError() {
         sessionError = nil
     }

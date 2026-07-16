@@ -1,0 +1,3 @@
+ALTER TABLE users
+    ADD COLUMN rating DOUBLE PRECISION NOT NULL DEFAULT 5.0
+    CHECK (rating >= 1.0 AND rating <= 5.0);

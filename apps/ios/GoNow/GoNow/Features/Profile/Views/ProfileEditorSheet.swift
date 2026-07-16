@@ -1,0 +1,177 @@
+import SwiftUI
+import UIKit
+import Foundation
+
+struct ProfileEditorSheet: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let user: CurrentUser
+    @State private var displayName: String
+    @State private var city: String
+    @State private var occupation: String
+    @State private var bio: String
+    @State private var interests: String
+    @State private var hasBirthDate: Bool
+    @State private var birthDate: Date
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @FocusState private var isNameFocused: Bool
+    @FocusState private var isCityFocused: Bool
+    @FocusState private var isOccupationFocused: Bool
+    @FocusState private var isInterestsFocused: Bool
+
+    init(user: CurrentUser) {
+        self.user = user
+        _displayName = State(initialValue: user.displayName)
+        _city = State(initialValue: user.city ?? "")
+        _occupation = State(initialValue: user.occupation ?? "")
+        _bio = State(initialValue: user.bio ?? "")
+        _interests = State(initialValue: (user.interests ?? []).joined(separator: ", "))
+        _hasBirthDate = State(initialValue: user.birthDate != nil)
+        _birthDate = State(initialValue: user.birthDate.flatMap(ProfileDate.parse) ?? Calendar.current.date(byAdding: .year, value: -25, to: .now) ?? .now)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AuthBackdrop()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack(spacing: 16) {
+                            AvatarPicker(initials: displayName.initials, size: 72)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Фотография профиля")
+                                    .font(.headline)
+                                Text("Нажмите на аватар, чтобы выбрать фото.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        ProfileInput(title: "Имя", text: $displayName, isFocused: $isNameFocused, contentType: .name, capitalization: .words)
+                        ProfileInput(title: "Город", text: $city, isFocused: $isCityFocused, contentType: .addressCity, capitalization: .words)
+                        ProfileInput(title: "Чем занимаетесь", text: $occupation, isFocused: $isOccupationFocused, capitalization: .sentences)
+
+                        GlassCard {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "calendar.badge.exclamationmark")
+                                        .foregroundStyle(.red)
+                                    Text("Дата рождения обязательна")
+                                        .font(.subheadline.weight(.semibold))
+                                }
+                                if hasBirthDate {
+                                    DatePicker("Дата рождения", selection: $birthDate, in: ...Date(), displayedComponents: .date)
+                                        .datePickerStyle(.compact)
+                                } else {
+                                    Button("Указать дату рождения") { hasBirthDate = true }
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(GoNowTheme.primary)
+                                        .frame(minHeight: 44)
+                                }
+                                Text("Без неё нельзя создавать задания и подавать заявки.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        ProfileInput(title: "Интересы", text: $interests, isFocused: $isInterestsFocused, capitalization: .sentences)
+                        Text("Через запятую: прогулки, кино, йога")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("О себе")
+                                .font(.subheadline.weight(.medium))
+                            TextEditor(text: $bio)
+                                .font(.body)
+                                .scrollContentBackground(.hidden)
+                                .frame(minHeight: 118)
+                                .padding(10)
+                                .liquidGlassField(isInvalid: false, isFocused: false)
+                            Text("До 500 символов")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let errorMessage {
+                            Label(errorMessage, systemImage: "exclamationmark.circle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+
+                        Button(isSaving ? "Сохраняем…" : "Сохранить профиль") { save() }
+                            .buttonStyle(GradientPrimaryButtonStyle())
+                            .disabled(isSaving)
+                    }
+                    .padding(24)
+                }
+            }
+            .navigationTitle("Мой профиль")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Готово") { dismiss() }
+                        .foregroundStyle(GoNowTheme.primary)
+                }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func save() {
+        let items = interests
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard displayName.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else {
+            errorMessage = "Введите имя не короче двух символов"
+            return
+        }
+        guard hasBirthDate else {
+            errorMessage = "Укажите дату рождения, чтобы участвовать в активностях"
+            return
+        }
+        isSaving = true
+        errorMessage = nil
+        let payload = UpdateProfilePayload(
+            displayName: displayName,
+            birthDate: ProfileDate.format(birthDate),
+            city: city.nilIfEmpty,
+            occupation: occupation.nilIfEmpty,
+            bio: bio.nilIfEmpty,
+            interests: items
+        )
+        Task {
+            defer { isSaving = false }
+            do {
+                try await appState.updateProfile(payload)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
+struct ProfileInput: View {
+    let title: String
+    @Binding var text: String
+    @FocusState.Binding var isFocused: Bool
+    var contentType: UITextContentType? = nil
+    var capitalization: TextInputAutocapitalization = .sentences
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+            TextField(title, text: $text)
+                .textContentType(contentType)
+                .textInputAutocapitalization(capitalization)
+                .focused($isFocused)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 54)
+                .liquidGlassField(isInvalid: false, isFocused: isFocused)
+        }
+    }
+}

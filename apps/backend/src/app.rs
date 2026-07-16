@@ -61,8 +61,8 @@ impl AppState {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, health),
-    components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, crate::shared::response::ErrorEnvelope)),
+    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, health),
+    components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, users::UpdateProfileRequest, crate::shared::response::ErrorEnvelope)),
     tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"))
 )]
 struct ApiDoc;
@@ -75,7 +75,7 @@ pub fn router(state: AppState) -> Router {
         .filter_map(|origin| origin.parse().ok())
         .collect();
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::OPTIONS])
         .allow_headers(tower_http::cors::Any)
         .allow_origin(AllowOrigin::list(origins));
     Router::new()
@@ -87,7 +87,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/refresh", post(auth::refresh))
         .route("/api/v1/auth/logout", post(auth::logout))
-        .route("/api/v1/users/me", get(users::me))
+        .route("/api/v1/users/me", get(users::me).patch(users::update_me))
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())

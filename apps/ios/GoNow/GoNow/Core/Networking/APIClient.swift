@@ -41,6 +41,11 @@ actor APIClient {
         return try await request(path, method: "POST", body: data, authenticated: authenticated, retryAfterRefresh: retryAfterRefresh)
     }
 
+    func patch<Input: Encodable & Sendable, Output: Decodable & Sendable>(_ path: String, body: Input) async throws -> Output {
+        let data = try encoder.encode(body)
+        return try await request(path, method: "PATCH", body: data, authenticated: true, retryAfterRefresh: true)
+    }
+
     func get<Output: Decodable & Sendable>(_ path: String) async throws -> Output {
         try await request(path, method: "GET", body: nil, authenticated: true, retryAfterRefresh: true)
     }

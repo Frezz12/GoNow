@@ -37,6 +37,14 @@ struct LogoutPayload: Codable, Sendable { let refreshToken: String }
 struct VerifyEmailPayload: Codable, Sendable { let email: String; let code: String; let device: DevicePayload }
 struct ForgotPasswordPayload: Codable, Sendable { let email: String }
 struct ResetPasswordPayload: Codable, Sendable { let email: String; let code: String; let password: String; let device: DevicePayload }
+struct UpdateProfilePayload: Codable, Sendable {
+    let displayName: String
+    let birthDate: String?
+    let city: String?
+    let occupation: String?
+    let bio: String?
+    let interests: [String]
+}
 struct RegistrationData: Codable, Sendable { let email: String; let verificationRequired: Bool; let expiresAt: Date }
 
 struct AuthData: Codable, Sendable {
@@ -55,5 +63,12 @@ struct CurrentUser: Codable, Sendable, Equatable {
     let email: String
     let displayName: String
     let emailVerified: Bool
+    let birthDate: String?
+    let city: String?
+    let occupation: String?
+    let bio: String?
+    let interests: [String]?
+    let rating: Double?
+    let profileComplete: Bool?
     let createdAt: Date
 }

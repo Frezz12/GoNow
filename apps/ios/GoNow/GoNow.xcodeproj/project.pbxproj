@@ -6,6 +6,16 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		A120000930090A02003830BB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 952ED26430090A02003830BB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 952ED26B30090A02003830BB;
+			remoteInfo = GoNow;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		952ED26C30090A02003830BB /* GoNow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoNow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A120000130090A02003830BB /* GoNowTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoNowTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -26,6 +36,13 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		952ED26930090A02003830BB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A120000630090A02003830BB /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -86,11 +103,17 @@
 				A120000630090A02003830BB /* Frameworks */,
 				A120000730090A02003830BB /* Resources */,
 			);
-			buildRules = ();
-			dependencies = (A120000830090A02003830BB /* PBXTargetDependency */);
-			fileSystemSynchronizedGroups = (A120000230090A02003830BB /* GoNowTests */);
+			buildRules = (
+			);
+			dependencies = (
+				A120000830090A02003830BB /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A120000230090A02003830BB /* GoNowTests */,
+			);
 			name = GoNowTests;
-			packageProductDependencies = ();
+			packageProductDependencies = (
+			);
 			productName = GoNowTests;
 			productReference = A120000130090A02003830BB /* GoNowTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -130,14 +153,6 @@
 		};
 /* End PBXProject section */
 
-/* Begin PBXContainerItemProxy section */
-		A120000930090A02003830BB /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = 952ED26430090A02003830BB /* Project object */; proxyType = 1; remoteGlobalIDString = 952ED26B30090A02003830BB; remoteInfo = GoNow; };
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXTargetDependency section */
-		A120000830090A02003830BB /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = 952ED26B30090A02003830BB /* GoNow */; targetProxy = A120000930090A02003830BB /* PBXContainerItemProxy */; };
-/* End PBXTargetDependency section */
-
 /* Begin PBXResourcesBuildPhase section */
 		952ED26A30090A02003830BB /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
@@ -146,7 +161,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A120000730090A02003830BB /* Resources */ = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A120000730090A02003830BB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -157,12 +178,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A120000530090A02003830BB /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A120000530090A02003830BB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
-/* Begin PBXFrameworksBuildPhase section */
-		A120000630090A02003830BB /* Frameworks */ = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-/* End PBXFrameworksBuildPhase section */
+/* Begin PBXTargetDependency section */
+		A120000830090A02003830BB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 952ED26B30090A02003830BB /* GoNow */;
+			targetProxy = A120000930090A02003830BB /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		952ED27530090A05003830BB /* Debug */ = {
@@ -293,11 +324,11 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_GoNowAPIBaseURL = "http://127.0.0.1:8080/api/v1";
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_GoNowAPIBaseURL = "http://127.0.0.1:8080/api/v1";
-				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -326,10 +357,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_GoNowAPIBaseURL = "https://api.gonow.example/api/v1";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_GoNowAPIBaseURL = "https://api.gonow.example/api/v1";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -356,9 +387,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = frezzy.GoNowTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GoNow.app/GoNow";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GoNow.app/GoNow";
 			};
 			name = Debug;
 		};
@@ -369,9 +400,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = frezzy.GoNowTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GoNow.app/GoNow";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GoNow.app/GoNow";
 			};
 			name = Release;
 		};
@@ -398,7 +429,10 @@
 		};
 		A120000430090A02003830BB /* Build configuration list for PBXNativeTarget "GoNowTests" */ = {
 			isa = XCConfigurationList;
-			buildConfigurations = (A120001030090A02003830BB /* Debug */, A120001130090A02003830BB /* Release */);
+			buildConfigurations = (
+				A120001030090A02003830BB /* Debug */,
+				A120001130090A02003830BB /* Release */,
+			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
