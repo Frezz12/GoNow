@@ -22,6 +22,13 @@ make start-infrastructure
 make backend-dev
 ```
 
+Если локальный порт `5432` уже занят другой PostgreSQL-базой, в `.env` используйте свободный порт и синхронно измените URL:
+
+```env
+POSTGRES_PORT=5433
+DATABASE_URL=postgres://gonow:change_me@localhost:5433/gonow
+```
+
 `make backend-dev` передаёт переменные из `.env`, запускает Rust API на `http://127.0.0.1:8080` и автоматически применяет миграции.
 
 Проверьте зависимости и API в отдельном терминале:

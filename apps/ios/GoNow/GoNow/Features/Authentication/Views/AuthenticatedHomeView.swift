@@ -18,6 +18,15 @@ struct AuthenticatedHomeView: View {
                             LabeledContent("Email", value: user.email)
                             LabeledContent("Подтверждение email", value: user.emailVerified ? "Подтверждён" : "Пока не подтверждён")
                         }
+                        Section("Карта GoNow") {
+                            HStack(spacing: 16) {
+                                MapPointMarker(size: 52)
+                                    .frame(width: 56, height: 56)
+                                Text("Так будет отмечаться точка активности на карте.")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
                         Section {
                             Button { Task { await appState.reloadUser() } } label: {
                                 HStack { Text("Обновить данные"); Spacer(); if appState.isRefreshingUser { ProgressView() } }

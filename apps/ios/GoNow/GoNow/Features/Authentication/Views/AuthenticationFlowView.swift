@@ -27,7 +27,9 @@ private struct LoginView: View {
     let onShowRegister: () -> Void
 
     var body: some View {
-        ScrollView {
+        ZStack {
+            AuthBackdrop()
+            ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 brandHeader(title: "Рядом — интереснее", subtitle: "Войдите, чтобы находить людей для активностей рядом.")
                 VStack(spacing: 16) {
@@ -39,9 +41,7 @@ private struct LoginView: View {
                     if isLoading { ProgressView().tint(.white).frame(maxWidth: .infinity) }
                     else { Text("Войти").frame(maxWidth: .infinity) }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(GoNowTheme.primary)
-                .controlSize(.large)
+                .buttonStyle(GradientPrimaryButtonStyle())
                 .disabled(isLoading)
                 .accessibilityHint("Выполнить вход с указанным email и паролем")
                 HStack(spacing: 4) {
@@ -52,8 +52,8 @@ private struct LoginView: View {
             }
             .padding(24)
             .frame(maxWidth: 520, alignment: .leading)
+            }
         }
-        .background(GoNowTheme.background.ignoresSafeArea())
         .navigationTitle("Вход")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -85,7 +85,9 @@ private struct RegisterView: View {
     let onShowLogin: () -> Void
 
     var body: some View {
-        ScrollView {
+        ZStack {
+            AuthBackdrop()
+            ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 brandHeader(title: "Ваши планы начинаются здесь", subtitle: "Создайте аккаунт — это займёт меньше минуты.")
                 VStack(spacing: 16) {
@@ -100,9 +102,7 @@ private struct RegisterView: View {
                     if isLoading { ProgressView().tint(.white).frame(maxWidth: .infinity) }
                     else { Text("Создать аккаунт").frame(maxWidth: .infinity) }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(GoNowTheme.primary)
-                .controlSize(.large)
+                .buttonStyle(GradientPrimaryButtonStyle())
                 .disabled(isLoading)
                 HStack(spacing: 4) {
                     Text("Уже есть аккаунт?").foregroundStyle(.secondary)
@@ -112,8 +112,8 @@ private struct RegisterView: View {
             }
             .padding(24)
             .frame(maxWidth: 520, alignment: .leading)
+            }
         }
-        .background(GoNowTheme.background.ignoresSafeArea())
         .navigationTitle("Регистрация")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -138,11 +138,21 @@ private struct RegisterView: View {
 }
 
 private func brandHeader(title: String, subtitle: String) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-        Image(systemName: "location.circle.fill").font(.system(size: 42)).foregroundStyle(GoNowTheme.primary).accessibilityHidden(true)
-        Text(title).font(.largeTitle.bold()).fixedSize(horizontal: false, vertical: true)
-        Text(subtitle).font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    VStack(alignment: .center, spacing: 12) {
+        MapPointMarker(size: 84)
+            .frame(width: 84, height: 84)
+            .accessibilityHidden(true)
+        Text(title)
+            .font(.largeTitle.bold())
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        Text(subtitle)
+            .font(.body)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
     }
+    .frame(maxWidth: .infinity)
 }
 
 private struct AuthTextField: View {
@@ -161,9 +171,8 @@ private struct AuthTextField: View {
                 .keyboardType(keyboard)
                 .textInputAutocapitalization(capitalization)
                 .autocorrectionDisabled(keyboard == .emailAddress)
-                .padding(.horizontal, 12).frame(minHeight: 48)
-                .background(.background, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(error == nil ? GoNowTheme.border : .red, lineWidth: 1))
+                .padding(.horizontal, 16).frame(minHeight: 54)
+                .liquidGlassField(isInvalid: error != nil)
             if let error { ErrorMessage(text: error) }
         }
     }
@@ -186,9 +195,8 @@ private struct PasswordField: View {
                     .font(.footnote.weight(.semibold))
                     .accessibilityLabel(isVisible ? "Скрыть пароль" : "Показать пароль")
             }
-            .padding(.horizontal, 12).frame(minHeight: 48)
-            .background(.background, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(error == nil ? GoNowTheme.border : .red, lineWidth: 1))
+            .padding(.horizontal, 16).frame(minHeight: 54)
+            .liquidGlassField(isInvalid: error != nil)
             if let error { ErrorMessage(text: error) }
         }
     }
