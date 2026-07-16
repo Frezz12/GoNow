@@ -24,6 +24,8 @@ private struct LoginView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var fieldErrors: [String: String] = [:]
+    @FocusState private var isEmailFocused: Bool
+    @FocusState private var isPasswordFocused: Bool
     let onShowRegister: () -> Void
 
     var body: some View {
@@ -33,8 +35,8 @@ private struct LoginView: View {
             VStack(alignment: .leading, spacing: 24) {
                 brandHeader(title: "Рядом — интереснее", subtitle: "Войдите, чтобы находить людей для активностей рядом.")
                 VStack(spacing: 16) {
-                    AuthTextField(title: "Email", text: $email, error: fieldErrors["email"], contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
-                    PasswordField(title: "Пароль", text: $password, isVisible: $isPasswordVisible, error: fieldErrors["password"], contentType: .password)
+                    AuthTextField(title: "Email", text: $email, error: fieldErrors["email"], isFocused: $isEmailFocused, contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
+                    PasswordField(title: "Пароль", text: $password, isVisible: $isPasswordVisible, error: fieldErrors["password"], isFocused: $isPasswordFocused, contentType: .password)
                 }
                 if let errorMessage { ErrorMessage(text: errorMessage) }
                 Button(action: submit) {
@@ -46,7 +48,8 @@ private struct LoginView: View {
                 .accessibilityHint("Выполнить вход с указанным email и паролем")
                 HStack(spacing: 4) {
                     Text("Впервые в GoNow?").foregroundStyle(.secondary)
-                    Button("Создать аккаунт", action: onShowRegister).fontWeight(.semibold)
+                    Button("Создать аккаунт", action: onShowRegister)
+                        .buttonStyle(GlassInlineButtonStyle())
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -82,6 +85,10 @@ private struct RegisterView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var fieldErrors: [String: String] = [:]
+    @FocusState private var isNameFocused: Bool
+    @FocusState private var isEmailFocused: Bool
+    @FocusState private var isPasswordFocused: Bool
+    @FocusState private var isConfirmationFocused: Bool
     let onShowLogin: () -> Void
 
     var body: some View {
@@ -91,10 +98,10 @@ private struct RegisterView: View {
             VStack(alignment: .leading, spacing: 20) {
                 brandHeader(title: "Ваши планы начинаются здесь", subtitle: "Создайте аккаунт — это займёт меньше минуты.")
                 VStack(spacing: 16) {
-                    AuthTextField(title: "Ваше имя", text: $name, error: fieldErrors["displayName"], contentType: .name, capitalization: .words)
-                    AuthTextField(title: "Email", text: $email, error: fieldErrors["email"], contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
-                    PasswordField(title: "Пароль", text: $password, isVisible: $isPasswordVisible, error: fieldErrors["password"], contentType: .newPassword)
-                    PasswordField(title: "Повторите пароль", text: $confirmation, isVisible: $isPasswordVisible, error: fieldErrors["confirmation"], contentType: .newPassword)
+                    AuthTextField(title: "Ваше имя", text: $name, error: fieldErrors["displayName"], isFocused: $isNameFocused, contentType: .name, capitalization: .words)
+                    AuthTextField(title: "Email", text: $email, error: fieldErrors["email"], isFocused: $isEmailFocused, contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
+                    PasswordField(title: "Пароль", text: $password, isVisible: $isPasswordVisible, error: fieldErrors["password"], isFocused: $isPasswordFocused, contentType: .newPassword)
+                    PasswordField(title: "Повторите пароль", text: $confirmation, isVisible: $isPasswordVisible, error: fieldErrors["confirmation"], isFocused: $isConfirmationFocused, contentType: .newPassword)
                 }
                 Text("Минимум 8 символов. Не используйте очевидный пароль.").font(.footnote).foregroundStyle(.secondary)
                 if let errorMessage { ErrorMessage(text: errorMessage) }
@@ -106,7 +113,8 @@ private struct RegisterView: View {
                 .disabled(isLoading)
                 HStack(spacing: 4) {
                     Text("Уже есть аккаунт?").foregroundStyle(.secondary)
-                    Button("Войти", action: onShowLogin).fontWeight(.semibold)
+                    Button("Войти", action: onShowLogin)
+                        .buttonStyle(GlassInlineButtonStyle())
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -159,6 +167,7 @@ private struct AuthTextField: View {
     let title: String
     @Binding var text: String
     let error: String?
+    @FocusState.Binding var isFocused: Bool
     var contentType: UITextContentType?
     var keyboard: UIKeyboardType = .default
     var capitalization: TextInputAutocapitalization = .sentences
@@ -171,8 +180,9 @@ private struct AuthTextField: View {
                 .keyboardType(keyboard)
                 .textInputAutocapitalization(capitalization)
                 .autocorrectionDisabled(keyboard == .emailAddress)
+                .focused($isFocused)
                 .padding(.horizontal, 16).frame(minHeight: 54)
-                .liquidGlassField(isInvalid: error != nil)
+                .liquidGlassField(isInvalid: error != nil, isFocused: isFocused)
             if let error { ErrorMessage(text: error) }
         }
     }
@@ -183,6 +193,7 @@ private struct PasswordField: View {
     @Binding var text: String
     @Binding var isVisible: Bool
     let error: String?
+    @FocusState.Binding var isFocused: Bool
     var contentType: UITextContentType
 
     var body: some View {
@@ -191,12 +202,13 @@ private struct PasswordField: View {
             HStack {
                 Group { if isVisible { TextField(title, text: $text) } else { SecureField(title, text: $text) } }
                     .textContentType(contentType)
+                    .focused($isFocused)
                 Button(isVisible ? "Скрыть" : "Показать") { isVisible.toggle() }
-                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(GlassInlineButtonStyle())
                     .accessibilityLabel(isVisible ? "Скрыть пароль" : "Показать пароль")
             }
             .padding(.horizontal, 16).frame(minHeight: 54)
-            .liquidGlassField(isInvalid: error != nil)
+            .liquidGlassField(isInvalid: error != nil, isFocused: isFocused)
             if let error { ErrorMessage(text: error) }
         }
     }

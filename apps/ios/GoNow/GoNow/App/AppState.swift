@@ -57,6 +57,10 @@ final class AppState: ObservableObject {
         catch { sessionError = error.localizedDescription }
     }
 
+    func dismissSessionError() {
+        sessionError = nil
+    }
+
     func logout() async {
         await repository.logout()
         currentUser = nil
