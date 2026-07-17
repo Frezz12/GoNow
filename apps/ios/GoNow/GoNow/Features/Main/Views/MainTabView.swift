@@ -9,17 +9,21 @@ struct MainTabView: View {
 
     var body: some View {
         ZStack {
-            Group {
-                switch selectedTab {
-                case .map:
-                    MapTabView { selectedTab = .profile }
-                case .tasks:
-                    TasksTabView()
-                case .chat:
-                    ChatTabView()
-                case .profile:
-                    ProfileTabView()
-                }
+            // The native tab bar renders with the system Liquid Glass treatment on iOS 26.
+            // It is more legible and responsive than a custom material imitation.
+            TabView(selection: $selectedTab) {
+                MapTabView { selectedTab = .profile }
+                    .tabItem { Label(AppTab.map.title, systemImage: AppTab.map.symbol) }
+                    .tag(AppTab.map)
+                TasksTabView()
+                    .tabItem { Label(AppTab.tasks.title, systemImage: AppTab.tasks.symbol) }
+                    .tag(AppTab.tasks)
+                ChatTabView()
+                    .tabItem { Label(AppTab.chat.title, systemImage: AppTab.chat.symbol) }
+                    .tag(AppTab.chat)
+                ProfileTabView()
+                    .tabItem { Label(AppTab.profile.title, systemImage: AppTab.profile.symbol) }
+                    .tag(AppTab.profile)
             }
 
             if selectedTab == .map && appState.shouldShowProfileSetupPrompt {
@@ -28,7 +32,7 @@ struct MainTabView: View {
                     isProfileSetupPresented = true
                 }
                 .padding(.horizontal, AppLayout.horizontalInset)
-                .padding(.bottom, 176)
+                .padding(.bottom, 164)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
@@ -41,16 +45,9 @@ struct MainTabView: View {
                         isCreateTaskPresented = true
                     }
                 }
-                .padding(.bottom, 96)
+                .padding(.bottom, 58)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .transition(.scale.combined(with: .opacity))
-            }
-
-            VStack {
-                Spacer()
-                AppTabBar(selection: $selectedTab)
-                    .padding(.horizontal, AppLayout.horizontalInset)
-                    .padding(.bottom, AppSpacing.xs)
             }
         }
         .tint(AppColors.accentPrimary)

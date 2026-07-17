@@ -13,13 +13,12 @@ enum GlassSurfaceStyle {
     case subtle
     case regular
     case prominent
-    case navigation
     case floating
 
     var material: Material {
         switch self {
         case .subtle: .ultraThinMaterial
-        case .regular, .navigation: .thinMaterial
+        case .regular: .thinMaterial
         case .prominent, .floating: .regularMaterial
         }
     }
@@ -29,7 +28,6 @@ enum GlassSurfaceStyle {
         case .subtle: AppColors.surfaceGlass.opacity(0.20)
         case .regular: AppColors.surfaceGlass.opacity(0.34)
         case .prominent: AppColors.surfaceGlassStrong.opacity(0.62)
-        case .navigation: AppColors.surfaceGlassStrong.opacity(0.50)
         case .floating: AppColors.surfaceGlassStrong.opacity(0.64)
         }
     }
@@ -39,7 +37,6 @@ enum GlassSurfaceStyle {
         case .subtle: .subtle
         case .regular: .card
         case .prominent: .sheet
-        case .navigation: .floating
         case .floating: .floating
         }
     }
@@ -287,7 +284,7 @@ struct AppBadge: View {
     }
 }
 
-enum AppTab: Int, CaseIterable, Identifiable {
+enum AppTab: Int, CaseIterable, Identifiable, Hashable {
     case map
     case tasks
     case chat
@@ -311,43 +308,6 @@ enum AppTab: Int, CaseIterable, Identifiable {
         case .chat: "message.fill"
         case .profile: "person.crop.circle.fill"
         }
-    }
-}
-
-struct AppTabBar: View {
-    @Binding var selection: AppTab
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        HStack(spacing: AppSpacing.xs) {
-            ForEach(AppTab.allCases) { tab in
-                Button {
-                    withAnimation(reduceMotion ? nil : AppAnimation.standard) {
-                        selection = tab
-                    }
-                } label: {
-                    VStack(spacing: AppSpacing.xxs) {
-                        Image(systemName: tab.symbol)
-                            .font(.body.weight(.semibold))
-                        Text(tab.title)
-                            .font(.caption2.weight(.semibold))
-                    }
-                    .foregroundStyle(selection == tab ? AppColors.accentPrimary : AppColors.textMuted)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .background {
-                        Capsule()
-                            .fill(selection == tab ? AppColors.accentPrimary.opacity(0.13) : .clear)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(AppPressButtonStyle())
-                .accessibilityLabel(tab.title)
-                .accessibilityAddTraits(selection == tab ? .isSelected : [])
-            }
-        }
-        .padding(AppSpacing.xs)
-        .glassSurface(.navigation, cornerRadius: AppRadius.largeCard)
-        .accessibilityElement(children: .contain)
     }
 }
 

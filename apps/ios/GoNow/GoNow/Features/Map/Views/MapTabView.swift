@@ -14,8 +14,8 @@ struct MapTabView: View {
 
             HStack(alignment: .top) {
                 MapWeatherWidget(
-                    latitude: appState.currentUser?.latitude,
-                    longitude: appState.currentUser?.longitude
+                    profileLatitude: appState.currentUser?.latitude,
+                    profileLongitude: appState.currentUser?.longitude
                 )
                 Spacer(minLength: AppSpacing.md)
 

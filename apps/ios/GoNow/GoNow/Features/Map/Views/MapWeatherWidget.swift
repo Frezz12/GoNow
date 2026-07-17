@@ -1,11 +1,13 @@
+import CoreLocation
 import SwiftUI
 
 struct MapWeatherWidget: View {
-    let latitude: Double?
-    let longitude: Double?
+    let profileLatitude: Double?
+    let profileLongitude: Double?
 
     @AppStorage("gonow.weather.temperature-unit") private var temperatureUnit: TemperatureUnit = .automatic
     @StateObject private var weather = WeatherViewModel()
+    @StateObject private var deviceLocation = DeviceLocationProvider()
 
     var body: some View {
         Group {
@@ -16,13 +18,9 @@ struct MapWeatherWidget: View {
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(AppColors.warning)
                         .frame(width: 28)
-                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
-                        Text(snapshot.condition.title)
-                            .font(AppTypography.captionStrong)
-                        Text(snapshot.temperatureText + (snapshot.unit == .celsius ? "C" : "F"))
-                            .font(AppTypography.bodyMedium.monospacedDigit())
-                            .foregroundStyle(AppColors.textSecondary)
-                    }
+                    Text(snapshot.temperatureText + (snapshot.unit == .celsius ? "C" : "F"))
+                        .font(AppTypography.bodyMedium.monospacedDigit())
+                        .foregroundStyle(AppColors.textPrimary)
                 }
             } else if weather.isLoading {
                 HStack(spacing: AppSpacing.sm) {
@@ -31,7 +29,7 @@ struct MapWeatherWidget: View {
                         .font(AppTypography.captionStrong)
                 }
             } else {
-                Label("Укажите место", systemImage: "location.slash")
+                Label(placeholderTitle, systemImage: placeholderSymbol)
                     .font(AppTypography.captionStrong)
                     .foregroundStyle(AppColors.textSecondary)
             }
@@ -42,18 +40,58 @@ struct MapWeatherWidget: View {
         .glassSurface(.floating, cornerRadius: AppRadius.control)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
+        .task {
+            deviceLocation.requestCurrentLocation()
+        }
         .task(id: requestID) {
-            await weather.refresh(latitude: latitude, longitude: longitude, unit: temperatureUnit)
+            await weather.refresh(
+                latitude: weatherLatitude,
+                longitude: weatherLongitude,
+                unit: temperatureUnit
+            )
         }
     }
 
     private var requestID: String {
-        "\(latitude ?? 0)|\(longitude ?? 0)|\(temperatureUnit.rawValue)"
+        "\(weatherLatitude ?? 0)|\(weatherLongitude ?? 0)|\(temperatureUnit.rawValue)"
+    }
+
+    /// The live device coordinate takes priority. Profile location is a fallback when access is unavailable.
+    private var weatherLatitude: Double? {
+        deviceLocation.coordinate?.latitude ?? profileLatitude
+    }
+
+    private var weatherLongitude: Double? {
+        deviceLocation.coordinate?.longitude ?? profileLongitude
+    }
+
+    private var placeholderTitle: String {
+        if deviceLocation.isRequesting { return "Определяем место" }
+        if deviceLocation.authorizationStatus == .denied || deviceLocation.authorizationStatus == .restricted {
+            return "Геопозиция отключена"
+        }
+        if weather.unavailableReason == .networkUnavailable { return "Нет подключения" }
+        return "Погода недоступна"
+    }
+
+    private var placeholderSymbol: String {
+        if deviceLocation.isRequesting { return "location.fill" }
+        if deviceLocation.authorizationStatus == .denied || deviceLocation.authorizationStatus == .restricted {
+            return "location.slash"
+        }
+        return "cloud.fill"
     }
 
     private var accessibilityLabel: String {
         guard let snapshot = weather.snapshot else {
-            return weather.isUnavailable ? "Погода недоступна. Укажите место в профиле." : "Загрузка погоды"
+            if deviceLocation.isRequesting { return "Определяем геопозицию для погоды" }
+            if deviceLocation.authorizationStatus == .denied || deviceLocation.authorizationStatus == .restricted {
+                return "Геопозиция отключена. Разрешите доступ в настройках iPhone."
+            }
+            if weather.unavailableReason == .networkUnavailable {
+                return "Нет подключения к сервису погоды. Проверьте интернет или настройки VPN."
+            }
+            return weather.isUnavailable ? "Погода недоступна." : "Загрузка погоды"
         }
         return "Погода: \(snapshot.condition.title), \(snapshot.temperatureText) градусов \(snapshot.unit == .celsius ? "Цельсия" : "Фаренгейта")"
     }

@@ -59,6 +59,26 @@ enum WeatherCondition: Equatable {
         }
     }
 
+    init(metSymbolCode: String) {
+        let isDay = !metSymbolCode.contains("_night")
+
+        if metSymbolCode.contains("thunder") {
+            self = .thunderstorm
+        } else if metSymbolCode.contains("snow") {
+            self = .snow
+        } else if metSymbolCode.contains("rain") || metSymbolCode.contains("sleet") {
+            self = .rain
+        } else if metSymbolCode.contains("fog") {
+            self = .fog
+        } else if metSymbolCode.contains("partlycloudy") || metSymbolCode.contains("fair") {
+            self = .partlyCloudy(day: isDay)
+        } else if metSymbolCode.contains("clearsky") {
+            self = .clear(day: isDay)
+        } else {
+            self = .cloudy
+        }
+    }
+
     var title: String {
         switch self {
         case .clear: "Солнечно"
@@ -91,6 +111,7 @@ final class WeatherViewModel: ObservableObject {
     @Published private(set) var snapshot: WeatherSnapshot?
     @Published private(set) var isLoading = false
     @Published private(set) var isUnavailable = false
+    @Published private(set) var unavailableReason: WeatherUnavailableReason?
 
     private var lastRequest: (latitude: Double, longitude: Double, unit: TemperatureUnit, date: Date)?
 
@@ -98,6 +119,7 @@ final class WeatherViewModel: ObservableObject {
         guard let latitude, let longitude else {
             snapshot = nil
             isUnavailable = true
+            unavailableReason = .locationUnavailable
             return
         }
 
@@ -111,6 +133,7 @@ final class WeatherViewModel: ObservableObject {
 
         isLoading = true
         isUnavailable = false
+        unavailableReason = nil
         defer { isLoading = false }
 
         do {
@@ -118,12 +141,74 @@ final class WeatherViewModel: ObservableObject {
             lastRequest = (latitude, longitude, unit.effective, .now)
         } catch {
             isUnavailable = true
+            unavailableReason = WeatherUnavailableReason(error: error)
+        }
+    }
+}
+
+enum WeatherUnavailableReason: Equatable {
+    case locationUnavailable
+    case networkUnavailable
+    case serviceUnavailable
+
+    init(error: Error) {
+        guard let urlError = error as? URLError else {
+            self = .serviceUnavailable
+            return
+        }
+
+        switch urlError.code {
+        case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .timedOut:
+            self = .networkUnavailable
+        default:
+            self = .serviceUnavailable
         }
     }
 }
 
 private enum WeatherService {
     static func fetch(latitude: Double, longitude: Double, unit: TemperatureUnit) async throws -> WeatherSnapshot {
+        do {
+            return try await fetchViaGoNowBackend(latitude: latitude, longitude: longitude, unit: unit)
+        } catch {
+            do {
+                return try await fetchOpenMeteo(latitude: latitude, longitude: longitude, unit: unit)
+            } catch let error as URLError where shouldTryFallback(for: error) {
+                return try await fetchMetNorway(latitude: latitude, longitude: longitude, unit: unit)
+            }
+        }
+    }
+
+    /// Uses the GoNow server first so a simulator's VPN/DNS configuration cannot block weather updates.
+    private static func fetchViaGoNowBackend(latitude: Double, longitude: Double, unit: TemperatureUnit) async throws -> WeatherSnapshot {
+        var components = URLComponents(
+            url: AppConfiguration.apiBaseURL.appendingPathComponent("weather/current"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "latitude", value: String(latitude)),
+            URLQueryItem(name: "longitude", value: String(longitude)),
+            URLQueryItem(name: "unit", value: unit.apiValue)
+        ]
+        guard let url = components?.url else { throw URLError(.badURL) }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        let payload = try JSONDecoder().decode(GoNowWeatherResponse.self, from: data).data
+        return WeatherSnapshot(
+            temperature: payload.temperature,
+            unit: unit,
+            condition: WeatherCondition(code: payload.weatherCode, isDay: payload.isDay)
+        )
+    }
+
+    private static func fetchOpenMeteo(latitude: Double, longitude: Double, unit: TemperatureUnit) async throws -> WeatherSnapshot {
         var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")
         components?.queryItems = [
             URLQueryItem(name: "latitude", value: String(latitude)),
@@ -145,6 +230,50 @@ private enum WeatherService {
             condition: WeatherCondition(code: payload.current.weatherCode, isDay: payload.current.isDay == 1)
         )
     }
+
+    /// A second provider makes the map widget resilient to VPNs that cannot resolve Open-Meteo's host.
+    private static func fetchMetNorway(latitude: Double, longitude: Double, unit: TemperatureUnit) async throws -> WeatherSnapshot {
+        var components = URLComponents(string: "https://api.met.no/weatherapi/locationforecast/2.0/compact")
+        components?.queryItems = [
+            URLQueryItem(name: "lat", value: String(latitude)),
+            URLQueryItem(name: "lon", value: String(longitude))
+        ]
+        guard let url = components?.url else { throw URLError(.badURL) }
+
+        var request = URLRequest(url: url)
+        request.setValue("GoNow/1.0 (https://github.com/Frezz12/GoNow)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 12
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+
+        let payload = try JSONDecoder().decode(MetNorwayResponse.self, from: data)
+        guard let current = payload.properties.timeSeries.first else { throw URLError(.cannotParseResponse) }
+
+        let celsius = current.data.instant.details.airTemperature
+        let temperature = unit == .fahrenheit ? (celsius * 9 / 5) + 32 : celsius
+        let symbol = current.data.nextOneHour?.summary.symbolCode
+            ?? current.data.nextSixHours?.summary.symbolCode
+            ?? current.data.nextTwelveHours?.summary.symbolCode
+            ?? "cloudy"
+
+        return WeatherSnapshot(
+            temperature: temperature,
+            unit: unit,
+            condition: WeatherCondition(metSymbolCode: symbol)
+        )
+    }
+
+    private static func shouldTryFallback(for error: URLError) -> Bool {
+        switch error.code {
+        case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .timedOut:
+            true
+        default:
+            false
+        }
+    }
 }
 
 private struct OpenMeteoResponse: Decodable {
@@ -159,6 +288,70 @@ private struct OpenMeteoResponse: Decodable {
             case temperature = "temperature_2m"
             case weatherCode = "weather_code"
             case isDay = "is_day"
+        }
+    }
+}
+
+private struct GoNowWeatherResponse: Decodable {
+    let data: Data
+
+    struct Data: Decodable {
+        let temperature: Double
+        let weatherCode: Int
+        let isDay: Bool
+    }
+}
+
+private struct MetNorwayResponse: Decodable {
+    let properties: Properties
+
+    struct Properties: Decodable {
+        let timeSeries: [TimeSeries]
+
+        enum CodingKeys: String, CodingKey {
+            case timeSeries = "timeseries"
+        }
+    }
+
+    struct TimeSeries: Decodable {
+        let data: DataPoint
+    }
+
+    struct DataPoint: Decodable {
+        let instant: Instant
+        let nextOneHour: Forecast?
+        let nextSixHours: Forecast?
+        let nextTwelveHours: Forecast?
+
+        enum CodingKeys: String, CodingKey {
+            case instant
+            case nextOneHour = "next_1_hours"
+            case nextSixHours = "next_6_hours"
+            case nextTwelveHours = "next_12_hours"
+        }
+    }
+
+    struct Instant: Decodable {
+        let details: Details
+    }
+
+    struct Details: Decodable {
+        let airTemperature: Double
+
+        enum CodingKeys: String, CodingKey {
+            case airTemperature = "air_temperature"
+        }
+    }
+
+    struct Forecast: Decodable {
+        let summary: Summary
+    }
+
+    struct Summary: Decodable {
+        let symbolCode: String
+
+        enum CodingKeys: String, CodingKey {
+            case symbolCode = "symbol_code"
         }
     }
 }
