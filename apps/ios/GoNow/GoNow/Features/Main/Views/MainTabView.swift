@@ -5,37 +5,39 @@ struct MainTabView: View {
     @State private var isCreateTaskPresented = false
     @State private var isProfileRequiredPresented = false
     @State private var isProfileSetupPresented = false
-    @State private var selectedTab = 0
+    @State private var selectedTab: AppTab = .map
 
     var body: some View {
         ZStack {
+            // The native tab bar renders with the system Liquid Glass treatment on iOS 26.
+            // It is more legible and responsive than a custom material imitation.
             TabView(selection: $selectedTab) {
-                MapTabView { selectedTab = 3 }
-                    .tabItem { Label("Карта", systemImage: "map.fill") }
-                    .tag(0)
+                MapTabView { selectedTab = .profile }
+                    .tabItem { Label(AppTab.map.title, systemImage: AppTab.map.symbol) }
+                    .tag(AppTab.map)
                 TasksTabView()
-                    .tabItem { Label("Задания", systemImage: "checklist") }
-                    .tag(1)
+                    .tabItem { Label(AppTab.tasks.title, systemImage: AppTab.tasks.symbol) }
+                    .tag(AppTab.tasks)
                 ChatTabView()
-                    .tabItem { Label("Чат", systemImage: "message.fill") }
-                    .tag(2)
+                    .tabItem { Label(AppTab.chat.title, systemImage: AppTab.chat.symbol) }
+                    .tag(AppTab.chat)
                 ProfileTabView()
-                    .tabItem { Label("Профиль", systemImage: "person.crop.circle.fill") }
-                    .tag(3)
+                    .tabItem { Label(AppTab.profile.title, systemImage: AppTab.profile.symbol) }
+                    .tag(AppTab.profile)
             }
 
-            if selectedTab == 0 && appState.shouldShowProfileSetupPrompt {
+            if selectedTab == .map && appState.shouldShowProfileSetupPrompt {
                 ProfileSetupPrompt {
                     appState.startProfileSetup()
                     isProfileSetupPresented = true
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, AppLayout.horizontalInset)
                 .padding(.bottom, 164)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            if selectedTab == 0 {
+            if selectedTab == .map {
                 MapCreateTaskButton {
                     if appState.currentUser?.profileStatus == .required {
                         isProfileRequiredPresented = true
@@ -48,7 +50,7 @@ struct MainTabView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
-        .tint(GoNowTheme.primary)
+        .tint(AppColors.accentPrimary)
         .sheet(isPresented: $isCreateTaskPresented) {
             CreateTaskSheet()
         }
@@ -58,7 +60,7 @@ struct MainTabView: View {
             }
         }
         .alert("Сначала заполните профиль", isPresented: $isProfileRequiredPresented) {
-            Button("Перейти в профиль") { selectedTab = 3 }
+            Button("Перейти в профиль") { selectedTab = .profile }
             Button("Позже", role: .cancel) {}
         } message: {
             Text("Укажите дату рождения, чтобы создавать задания и подавать заявки на активности.")
@@ -79,17 +81,16 @@ private struct MapCreateTaskButton: View {
                 Text("Создать")
                     .font(.headline.weight(.semibold))
             }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 24)
-            .frame(minWidth: 166, minHeight: 56)
-            .background(.ultraThinMaterial, in: shape)
-            .background(GoNowTheme.buttonGradient.opacity(0.76), in: shape)
+            .foregroundStyle(AppColors.textOnAccent)
+            .padding(.horizontal, AppSpacing.xl)
+            .frame(minWidth: 168, minHeight: 54)
+            .background(AppGradients.brand, in: shape)
             .glassEffect(.regular, in: shape)
             .overlay {
                 shape
                     .fill(
                         LinearGradient(
-                            colors: [.white.opacity(0.36), .white.opacity(0.08), .clear],
+                            colors: [AppColors.glassHighlight.opacity(0.36), AppColors.glassHighlight.opacity(0.08), .clear],
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -101,17 +102,16 @@ private struct MapCreateTaskButton: View {
                 shape
                     .strokeBorder(
                         LinearGradient(
-                            colors: [.white.opacity(0.86), .white.opacity(0.24)],
+                            colors: [AppColors.glassHighlight.opacity(0.86), AppColors.glassHighlight.opacity(0.24)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
                         lineWidth: 1
                     )
             }
-            .shadow(color: GoNowTheme.accent.opacity(0.36), radius: 16, y: 7)
-            .shadow(color: GoNowTheme.primary.opacity(0.24), radius: 26, y: 10)
+            .appShadow(.floating)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AppPressButtonStyle())
         .accessibilityLabel("Создать задачу")
         .accessibilityHint("Открыть форму создания новой задачи")
     }
@@ -126,19 +126,19 @@ private struct CreateTaskSheet: View {
         NavigationStack {
             ZStack {
                 AuthBackdrop()
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: AppSpacing.lg) {
                     Text("Новая задача")
                         .font(.title.bold())
                     Text("Начните с названия. Настройки времени, места и участников появятся следующим шагом.")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppColors.textSecondary)
 
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
                         Text("Название")
                             .font(.subheadline.weight(.medium))
                         TextField("Например, прогулка в парке", text: $title)
                             .focused($isTitleFocused)
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, AppSpacing.md)
                             .frame(minHeight: 54)
                             .liquidGlassField(isInvalid: false, isFocused: isTitleFocused)
                     }
@@ -148,14 +148,14 @@ private struct CreateTaskSheet: View {
                         .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Spacer()
                 }
-                .padding(24)
+                .padding(AppSpacing.xl)
             }
             .navigationTitle("Создать")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Закрыть") { dismiss() }
-                        .foregroundStyle(GoNowTheme.primary)
+                        .foregroundStyle(AppColors.accentPrimary)
                 }
             }
         }

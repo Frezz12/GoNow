@@ -8,11 +8,17 @@ struct MapTabView: View {
     let onProfileTap: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
             MapPreviewSurface()
                 .ignoresSafeArea()
 
-            VStack(alignment: .trailing, spacing: 8) {
+            HStack(alignment: .top) {
+                MapWeatherWidget(
+                    profileLatitude: appState.currentUser?.latitude,
+                    profileLongitude: appState.currentUser?.longitude
+                )
+                Spacer(minLength: AppSpacing.md)
+
                 Menu {
                     Button {
                         onProfileTap()
@@ -34,8 +40,9 @@ struct MapTabView: View {
                 .accessibilityLabel(profileMenuAccessibilityLabel)
                 .accessibilityHint("Открыть профиль или уведомления")
             }
-            .padding(.top, 12)
-            .padding(.trailing, 20)
+            .padding(.top, AppSpacing.sm)
+            .padding(.horizontal, AppLayout.horizontalInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .alert("Уведомления", isPresented: $isNotificationsPresented) {
             Button("Готово", role: .cancel) {}
@@ -47,16 +54,18 @@ struct MapTabView: View {
     private var profileAvatar: some View {
         ZStack(alignment: .bottomTrailing) {
             ProfileAvatar(initials: appState.currentUser?.initials ?? "G", size: 48, imageData: appState.avatarImageData)
-                .padding(3)
-                .background(.thinMaterial, in: Circle())
-                .overlay { Circle().strokeBorder(.white.opacity(0.82), lineWidth: 1) }
+                .padding(AppSpacing.xxs)
+                .background(.regularMaterial, in: Circle())
+                .glassEffect(.regular, in: Circle())
+                .overlay { Circle().strokeBorder(AppColors.glassBorder.opacity(0.72), lineWidth: 1) }
+                .appShadow(.floating)
             if appState.showsProfileCompletionIndicator, let status = appState.currentUser?.profileStatus {
                 Image(systemName: "exclamationmark")
                     .font(.caption2.weight(.black))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppColors.textOnAccent)
                     .frame(width: 20, height: 20)
                     .background(status.tint, in: Circle())
-                    .overlay { Circle().strokeBorder(.white, lineWidth: 2) }
+                    .overlay { Circle().strokeBorder(AppColors.glassBorder, lineWidth: 2) }
                     .offset(x: 2, y: 2)
                     .accessibilityHidden(true)
             }
@@ -77,7 +86,7 @@ private struct MapPreviewSurface: View {
         GeometryReader { proxy in
             ZStack {
                 LinearGradient(
-                    colors: [Color(red: 0.82, green: 0.92, blue: 0.88), Color(red: 0.89, green: 0.93, blue: 0.96)],
+                    colors: [AppColors.backgroundSecondary, AppColors.surfaceSecondary],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -89,7 +98,7 @@ private struct MapPreviewSurface: View {
                         control1: CGPoint(x: size.width * 0.28, y: size.height * 0.94),
                         control2: CGPoint(x: size.width * 0.68, y: size.height * 0.12)
                     )
-                    context.stroke(river, with: .color(Color.white.opacity(0.62)), lineWidth: 22)
+                    context.stroke(river, with: .color(AppColors.surfacePrimary.opacity(0.62)), lineWidth: 22)
                     for (index, ratio) in [0.16, 0.34, 0.56, 0.78].enumerated() {
                         var street = Path()
                         street.move(to: CGPoint(x: -20, y: size.height * ratio))
@@ -98,25 +107,25 @@ private struct MapPreviewSurface: View {
                             control1: CGPoint(x: size.width * 0.30, y: size.height * (ratio - 0.08)),
                             control2: CGPoint(x: size.width * 0.72, y: size.height * (ratio + 0.08))
                         )
-                        context.stroke(street, with: .color(Color.white.opacity(0.82)), lineWidth: index == 1 ? 11 : 7)
+                        context.stroke(street, with: .color(AppColors.surfacePrimary.opacity(0.82)), lineWidth: index == 1 ? 11 : 7)
                     }
                     for ratio in [0.19, 0.47, 0.73, 0.91] {
                         var street = Path()
                         street.move(to: CGPoint(x: size.width * ratio, y: -20))
                         street.addLine(to: CGPoint(x: size.width * (ratio - 0.18), y: size.height + 20))
-                        context.stroke(street, with: .color(Color.white.opacity(0.74)), lineWidth: 6)
+                        context.stroke(street, with: .color(AppColors.surfacePrimary.opacity(0.74)), lineWidth: 6)
                     }
                 }
                 .overlay(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: 34, style: .continuous)
-                        .fill(Color.green.opacity(0.22))
+                        .fill(AppColors.success.opacity(0.22))
                         .frame(width: proxy.size.width * 0.38, height: proxy.size.height * 0.24)
                         .rotationEffect(.degrees(-12))
                         .offset(x: -22, y: 126)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     RoundedRectangle(cornerRadius: 30, style: .continuous)
-                        .fill(Color.green.opacity(0.16))
+                        .fill(AppColors.success.opacity(0.16))
                         .frame(width: proxy.size.width * 0.44, height: proxy.size.height * 0.20)
                         .rotationEffect(.degrees(18))
                         .offset(x: 30, y: -120)

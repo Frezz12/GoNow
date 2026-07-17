@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::{
     config::Config,
     infrastructure::storage::S3ObjectStorage,
-    modules::{auth, media, users},
+    modules::{auth, media, users, weather},
 };
 
 #[derive(Clone)]
@@ -68,9 +68,9 @@ impl AppState {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, users::public_profile, media::list_profile_photos, media::upload_avatar, media::upload_profile_photo, media::download_profile_photo, media::delete_profile_photo, health),
-    components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, users::PublicProfileResponse, users::UpdateProfileRequest, media::ProfilePhotoResponse, media::ProfilePhotosResponse, crate::shared::response::ErrorEnvelope)),
-    tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"), (name = "media", description = "Private profile photos"))
+    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, users::public_profile, media::list_profile_photos, media::upload_avatar, media::upload_profile_photo, media::download_profile_photo, media::delete_profile_photo, weather::current, health),
+    components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, users::PublicProfileResponse, users::UpdateProfileRequest, media::ProfilePhotoResponse, media::ProfilePhotosResponse, weather::CurrentWeatherResponse, crate::shared::response::ErrorEnvelope)),
+    tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"), (name = "media", description = "Private profile photos"), (name = "weather", description = "Current weather"))
 )]
 struct ApiDoc;
 
@@ -100,6 +100,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/refresh", post(auth::refresh))
         .route("/api/v1/auth/logout", post(auth::logout))
+        .route("/api/v1/weather/current", get(weather::current))
         .route("/api/v1/users/me", get(users::me).patch(users::update_me))
         .route("/api/v1/users/{user_id}", get(users::public_profile))
         .route(

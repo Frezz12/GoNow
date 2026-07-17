@@ -10,7 +10,7 @@ struct ProfileSetupPrompt: View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: "sparkles")
                 .font(.title3.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(AppColors.textOnAccent)
                 .frame(width: 42, height: 42)
                 .background(GoNowTheme.buttonGradient, in: Circle())
 
@@ -19,7 +19,7 @@ struct ProfileSetupPrompt: View {
                     .font(.subheadline.weight(.semibold))
                 Text("Это займёт около минуты.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppColors.textSecondary)
             }
 
             Spacer(minLength: 8)
@@ -89,7 +89,7 @@ struct ProfileSetupFlow: View {
                         if let errorMessage {
                             Label(errorMessage, systemImage: "exclamationmark.circle.fill")
                                 .font(.footnote)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(AppColors.error)
                         }
                         controls
                     }
@@ -146,7 +146,7 @@ struct ProfileSetupFlow: View {
                         .font(.title2.bold())
                     Text("Дата нужна, чтобы безопасно подбирать активности по возрасту. Её не увидят другие пользователи.")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppColors.textSecondary)
                     DatePicker("Дата рождения", selection: $birthDate, in: ...Date(), displayedComponents: .date)
                         .datePickerStyle(.graphical)
                 }
@@ -158,7 +158,7 @@ struct ProfileSetupFlow: View {
                         .font(.title2.bold())
                     Text("Эти поля необязательны — их можно пропустить и изменить позже.")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppColors.textSecondary)
                     setupField("Город", text: $city, field: .city, contentType: .addressCity)
                     setupField("Чем занимаетесь", text: $occupation, field: .occupation)
                     setupField("Семейный статус", text: $relationshipStatus, field: .relationshipStatus)
@@ -174,7 +174,7 @@ struct ProfileSetupFlow: View {
                         .font(.title2.bold())
                     Text("Укажите район, город или место вручную — либо используйте геолокацию. Точный адрес никто не увидит.")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppColors.textSecondary)
                     setupField("Район, город или место", text: $locationLabel, field: .location)
                     Button {
                         locationPicker.requestCurrentLocation()
@@ -193,7 +193,7 @@ struct ProfileSetupFlow: View {
                                 .font(.subheadline.weight(.medium))
                             Text("Люди увидят только примерное расстояние, без адреса.")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AppColors.textSecondary)
                         }
                     }
                     .tint(GoNowTheme.primary)
@@ -210,11 +210,11 @@ struct ProfileSetupFlow: View {
                         .font(.title2.bold())
                     Text("Добавьте интересы, чтобы людям было проще начать разговор.")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppColors.textSecondary)
                     setupField("Интересы", text: $interests, field: .interests)
                     Text("Через запятую: прогулки, кино, йога")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppColors.textSecondary)
                     TextEditor(text: $bio)
                         .font(.body)
                         .scrollContentBackground(.hidden)

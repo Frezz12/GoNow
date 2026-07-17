@@ -326,7 +326,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_GoNowAPIBaseURL = "http://127.0.0.1:8080/api/v1";
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GoNow использует геопозицию только для показа примерного расстояния до вас.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GoNow использует геопозицию, чтобы показывать текущую погоду и примерное расстояние до вас.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -359,7 +359,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_GoNowAPIBaseURL = "https://api.gonow.example/api/v1";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GoNow использует геопозицию только для показа примерного расстояния до вас.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GoNow использует геопозицию, чтобы показывать текущую погоду и примерное расстояние до вас.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
