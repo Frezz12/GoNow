@@ -33,6 +33,11 @@ curl http://localhost:8080/health
 - `POST /api/v1/auth/refresh`
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/users/me`
+- `GET /api/v1/users/me/photos`
+- `POST /api/v1/users/me/avatar`
+- `POST /api/v1/users/me/photos`
+- `GET /api/v1/users/me/photos/{photoId}/content`
+- `DELETE /api/v1/users/me/photos/{photoId}`
 - `GET /health`
 
 Интерактивная документация: `http://localhost:8080/api/docs`; JSON-контракт: `http://localhost:8080/api/openapi.json`.
@@ -63,4 +68,4 @@ xcodebuild -project apps/ios/GoNow/GoNow.xcodeproj -scheme GoNow test
 
 ## Ограничения первого этапа
 
-Подтверждение email, карта, активности и чат ещё не реализованы. Вход не блокируется неподтверждённым email до появления сервиса отправки писем.
+Карта пока демонстрационная, а активности и чат ещё не реализованы. Email подтверждается кодом, а аватар и личная галерея хранятся в приватном S3-совместимом хранилище; настройка R2 описана в [storage.md](storage.md).

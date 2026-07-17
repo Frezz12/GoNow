@@ -12,6 +12,14 @@ enum ProfileDate {
 
     static func parse(_ value: String) -> Date? { formatter.date(from: value) }
     static func format(_ value: Date) -> String { formatter.string(from: value) }
+
+    static let displayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "d MMMM"
+        return formatter
+    }()
 }
 
 enum ProfileCompletionStatus: Equatable {
@@ -32,7 +40,7 @@ enum ProfileCompletionStatus: Equatable {
         case .complete:
             return ""
         case .optional:
-            return "Добавьте немного информации — профиль будет заметнее на карте."
+            return "Добавьте немного информации, чтобы люди больше узнали о вас."
         case .required:
             return "Укажите дату рождения, чтобы создавать задания и подавать заявки."
         }
@@ -67,9 +75,36 @@ extension CurrentUser {
         }
         return .complete
     }
+    var isFreshProfile: Bool {
+        birthDate == nil
+            && city?.nonEmpty == nil
+            && occupation?.nonEmpty == nil
+            && bio?.nonEmpty == nil
+            && interests?.isEmpty != false
+            && relationshipStatus?.nonEmpty == nil
+            && locationLabel?.nonEmpty == nil
+    }
     var age: Int? {
         guard let birthDate, let date = ProfileDate.parse(birthDate) else { return nil }
         return Calendar.current.dateComponents([.year], from: date, to: .now).year
+    }
+
+    var birthDateAndAgeText: String? {
+        guard let birthDate, let date = ProfileDate.parse(birthDate), let age else { return nil }
+        return "\(ProfileDate.displayFormatter.string(from: date)), \(age) \(age.russianYears)"
+    }
+}
+
+private extension Int {
+    var russianYears: String {
+        let remainder100 = self % 100
+        let remainder10 = self % 10
+        if (11...14).contains(remainder100) { return "лет" }
+        switch remainder10 {
+        case 1: return "год"
+        case 2...4: return "года"
+        default: return "лет"
+        }
     }
 }
 

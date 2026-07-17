@@ -3,9 +3,6 @@ import Foundation
 
 struct MapTabView: View {
     @EnvironmentObject private var appState: AppState
-    @AppStorage("gonow.profile.avatar.version") private var avatarVersion = 0
-    @State private var avatarImageData = Data()
-    @State private var isProfileMenuPresented = false
     @State private var isNotificationsPresented = false
     private let notificationCount = 0
     let onProfileTap: () -> Void
@@ -16,69 +13,44 @@ struct MapTabView: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .trailing, spacing: 8) {
-                Button {
-                    isProfileMenuPresented.toggle()
+                Menu {
+                    Button {
+                        onProfileTap()
+                    } label: {
+                        Label("Профиль", systemImage: "person.crop.circle")
+                    }
+
+                    Button {
+                        isNotificationsPresented = true
+                    } label: {
+                        Label(
+                            notificationCount > 0 ? "Уведомления (\(notificationCount))" : "Уведомления",
+                            systemImage: notificationCount > 0 ? "bell.badge.fill" : "bell"
+                        )
+                    }
                 } label: {
                     profileAvatar
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel((appState.currentUser?.profileStatus).map { "Меню профиля. \($0.accessibilityDescription)" } ?? "Меню профиля")
+                .accessibilityLabel(profileMenuAccessibilityLabel)
                 .accessibilityHint("Открыть профиль или уведомления")
-
-                if isProfileMenuPresented {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Button {
-                            isProfileMenuPresented = false
-                            onProfileTap()
-                        } label: {
-                            Label("Профиль", systemImage: "person.crop.circle")
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        Button {
-                            isProfileMenuPresented = false
-                            isNotificationsPresented = true
-                        } label: {
-                            Label(
-                                notificationCount > 0 ? "Уведомления (\(notificationCount))" : "Уведомления",
-                                systemImage: notificationCount > 0 ? "bell.badge.fill" : "bell"
-                            )
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    }
-                    .font(.subheadline.weight(.medium))
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(.primary)
-                    .padding(8)
-                    .frame(minWidth: 176, alignment: .leading)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(.white.opacity(0.72), lineWidth: 1)
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                    .accessibilityElement(children: .contain)
-                }
             }
             .padding(.top, 12)
             .padding(.trailing, 20)
         }
-        .animation(.easeOut(duration: 0.18), value: isProfileMenuPresented)
         .alert("Уведомления", isPresented: $isNotificationsPresented) {
             Button("Готово", role: .cancel) {}
         } message: {
             Text("Новых уведомлений пока нет.")
         }
-        .onAppear { refreshAvatar() }
-        .onChange(of: avatarVersion) { _, _ in refreshAvatar() }
     }
 
     private var profileAvatar: some View {
         ZStack(alignment: .bottomTrailing) {
-            ProfileAvatar(initials: appState.currentUser?.initials ?? "G", size: 48, imageData: avatarImageData)
+            ProfileAvatar(initials: appState.currentUser?.initials ?? "G", size: 48, imageData: appState.avatarImageData)
                 .padding(3)
                 .background(.thinMaterial, in: Circle())
                 .overlay { Circle().strokeBorder(.white.opacity(0.82), lineWidth: 1) }
-            if let status = appState.currentUser?.profileStatus, status != .complete {
+            if appState.showsProfileCompletionIndicator, let status = appState.currentUser?.profileStatus {
                 Image(systemName: "exclamationmark")
                     .font(.caption2.weight(.black))
                     .foregroundStyle(.white)
@@ -91,9 +63,12 @@ struct MapTabView: View {
         }
     }
 
-    private func refreshAvatar() {
-        ProfileMediaStore.migrateLegacyMediaIfNeeded()
-        avatarImageData = ProfileMediaStore.avatarData() ?? Data()
+    private var profileMenuAccessibilityLabel: String {
+        guard appState.showsProfileCompletionIndicator,
+              let status = appState.currentUser?.profileStatus else {
+            return "Меню профиля"
+        }
+        return "Меню профиля. \(status.accessibilityDescription)"
     }
 }
 

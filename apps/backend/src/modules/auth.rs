@@ -118,6 +118,11 @@ struct LoginRow {
     bio: Option<String>,
     interests: Vec<String>,
     rating: f64,
+    relationship_status: Option<String>,
+    location_label: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    show_distance: bool,
     created_at: DateTime<Utc>,
 }
 
@@ -135,6 +140,11 @@ impl From<LoginRow> for UserResponse {
             bio: value.bio,
             interests: value.interests,
             rating: value.rating,
+            relationship_status: value.relationship_status,
+            location_label: value.location_label,
+            latitude: value.latitude,
+            longitude: value.longitude,
+            show_distance: value.show_distance,
             profile_complete,
             created_at: value.created_at,
         }
@@ -385,7 +395,7 @@ pub async fn register(
     )
     .await?;
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
-    let existing: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, created_at FROM users WHERE email = $1 FOR UPDATE")
+    let existing: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE")
         .bind(&email)
         .fetch_optional(&mut *tx)
         .await
@@ -402,7 +412,7 @@ pub async fn register(
         (user, StatusCode::OK)
     } else {
         let password_hash = hash_password(&request.password)?;
-        let user = sqlx::query_as::<_, UserRow>("INSERT INTO users (id, email, password_hash, display_name) VALUES ($1, $2, $3, $4) RETURNING id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, created_at")
+        let user = sqlx::query_as::<_, UserRow>("INSERT INTO users (id, email, password_hash, display_name) VALUES ($1, $2, $3, $4) RETURNING id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at")
             .bind(Uuid::new_v4()).bind(&email).bind(password_hash).bind(request.display_name.trim())
             .fetch_one(&mut *tx).await.map_err(|error| if is_unique_violation(&error) { AppError { status: StatusCode::CONFLICT, code: "EMAIL_ALREADY_EXISTS", message: "Пользователь с таким email уже зарегистрирован".into(), fields: Some(serde_json::json!({"email":"Этот email уже используется"})) } } else { AppError::internal(error) })?;
         (user, StatusCode::CREATED)
@@ -427,7 +437,7 @@ pub async fn verify_email(
 ) -> Result<Json<ApiResponse<AuthData>>, AppError> {
     let email = normalized_email(&request.email);
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
-    let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, created_at FROM users WHERE email = $1 FOR UPDATE").bind(&email).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
+    let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE").bind(&email).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
     let mut user =
         user.ok_or_else(|| AppError::unauthorized("INVALID_EMAIL_CODE", "Код недействителен"))?;
     consume_email_code(&mut tx, &state, user.id, "verify_email", &request.code).await?;
@@ -466,7 +476,7 @@ pub async fn forgot_password(
 
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
     let user: Option<UserRow> = sqlx::query_as(
-        "SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, created_at FROM users WHERE email = $1 FOR UPDATE",
+        "SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
@@ -516,7 +526,7 @@ pub async fn reset_password(
 
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
     let user: Option<UserRow> = sqlx::query_as(
-        "SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, created_at FROM users WHERE email = $1 FOR UPDATE",
+        "SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
@@ -577,7 +587,7 @@ pub async fn login(
         state.config.rate_limit_login_max,
     )
     .await?;
-    let user: Option<LoginRow> = sqlx::query_as("SELECT id, email, password_hash, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, created_at FROM users WHERE email = $1").bind(&email).fetch_optional(&state.db).await.map_err(AppError::internal)?;
+    let user: Option<LoginRow> = sqlx::query_as("SELECT id, email, password_hash, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1").bind(&email).fetch_optional(&state.db).await.map_err(AppError::internal)?;
     let user = user.ok_or_else(invalid_credentials)?;
     if !verify_password(&request.password, &user.password_hash) {
         return Err(invalid_credentials());
@@ -648,7 +658,7 @@ pub async fn refresh(
             "Срок действия сессии истёк",
         ));
     }
-    let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, created_at FROM users WHERE id = $1").bind(session.user_id).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
+    let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE id = $1").bind(session.user_id).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
     let user = user.ok_or_else(|| {
         AppError::unauthorized("INVALID_REFRESH_TOKEN", "Недействительная сессия")
     })?;

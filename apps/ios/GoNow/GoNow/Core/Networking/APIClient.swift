@@ -50,6 +50,32 @@ actor APIClient {
         try await request(path, method: "GET", body: nil, authenticated: true, retryAfterRefresh: true)
     }
 
+    func uploadImage<Output: Decodable & Sendable>(_ path: String, imageData: Data) async throws -> Output {
+        let boundary = "GoNowBoundary-\(UUID().uuidString)"
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"profile.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        return try await request(
+            path,
+            method: "POST",
+            body: body,
+            contentType: "multipart/form-data; boundary=\(boundary)",
+            authenticated: true,
+            retryAfterRefresh: true
+        )
+    }
+
+    func getData(_ path: String) async throws -> Data {
+        try await validatedRequest(path, method: "GET", body: nil, contentType: nil, authenticated: true, retryAfterRefresh: true)
+    }
+
+    func delete(_ path: String) async throws {
+        _ = try await validatedRequest(path, method: "DELETE", body: nil, contentType: nil, authenticated: true, retryAfterRefresh: true)
+    }
+
     func refresh() async throws -> AuthData {
         if let task = refreshTask { return try await task.value }
         let task = Task<AuthData, Error> { [tokenStore] in
@@ -63,24 +89,32 @@ actor APIClient {
         return try await task.value
     }
 
-    private func request<Output: Decodable & Sendable>(_ path: String, method: String, body: Data?, authenticated: Bool, retryAfterRefresh: Bool) async throws -> Output {
+    private func request<Output: Decodable & Sendable>(_ path: String, method: String, body: Data?, contentType: String = "application/json", authenticated: Bool, retryAfterRefresh: Bool) async throws -> Output {
+        let data = try await validatedRequest(path, method: method, body: body, contentType: body == nil ? nil : contentType, authenticated: authenticated, retryAfterRefresh: retryAfterRefresh)
+        do { return try decoder.decode(Output.self, from: data) } catch { throw APIError.decoding }
+    }
+
+    private func validatedRequest(_ path: String, method: String, body: Data?, contentType: String?, authenticated: Bool, retryAfterRefresh: Bool) async throws -> Data {
         var urlRequest = URLRequest(url: baseURL.appendingPathComponent(path))
         urlRequest.httpMethod = method
         urlRequest.timeoutInterval = 20
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let body { urlRequest.httpBody = body; urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        if let body {
+            urlRequest.httpBody = body
+            if let contentType { urlRequest.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+        }
         if authenticated, let token = try tokenStore.read()?.accessToken { urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let data: Data
         let response: URLResponse
         do { (data, response) = try await session.data(for: urlRequest) } catch { throw APIError.transport(error.localizedDescription) }
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         if (200..<300).contains(http.statusCode) {
-            do { return try decoder.decode(Output.self, from: data) } catch { throw APIError.decoding }
+            return data
         }
         let serverError = try? decoder.decode(APIErrorEnvelope.self, from: data).error
         if http.statusCode == 401 && authenticated && retryAfterRefresh {
             do { _ = try await refresh() } catch { try? tokenStore.delete(); throw error }
-            return try await request(path, method: method, body: body, authenticated: authenticated, retryAfterRefresh: false)
+            return try await validatedRequest(path, method: method, body: body, contentType: contentType, authenticated: authenticated, retryAfterRefresh: false)
         }
         if let serverError { throw APIError.server(serverError) }
         if http.statusCode == 401 { throw APIError.unauthorized }

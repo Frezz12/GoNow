@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Instant};
 
 use axum::{
     Router,
-    extract::Request,
+    extract::{DefaultBodyLimit, Request},
     http::{HeaderValue, Method},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -21,7 +21,8 @@ use uuid::Uuid;
 
 use crate::{
     config::Config,
-    modules::{auth, users},
+    infrastructure::storage::S3ObjectStorage,
+    modules::{auth, media, users},
 };
 
 #[derive(Clone)]
@@ -29,10 +30,15 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub db: PgPool,
     pub redis: ConnectionManager,
+    pub object_storage: Option<S3ObjectStorage>,
 }
 
 impl AppState {
     pub async fn connect(config: Config) -> Result<Self, String> {
+        let object_storage = match &config.object_storage {
+            Some(config) => Some(S3ObjectStorage::connect(config).await),
+            None => None,
+        };
         let db = PgPoolOptions::new()
             .max_connections(10)
             .connect(&config.database_url)
@@ -55,15 +61,16 @@ impl AppState {
             config: Arc::new(config),
             db,
             redis,
+            object_storage,
         })
     }
 }
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, health),
-    components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, users::UpdateProfileRequest, crate::shared::response::ErrorEnvelope)),
-    tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"))
+    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, users::public_profile, media::list_profile_photos, media::upload_avatar, media::upload_profile_photo, media::download_profile_photo, media::delete_profile_photo, health),
+    components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, users::PublicProfileResponse, users::UpdateProfileRequest, media::ProfilePhotoResponse, media::ProfilePhotosResponse, crate::shared::response::ErrorEnvelope)),
+    tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"), (name = "media", description = "Private profile photos"))
 )]
 struct ApiDoc;
 
@@ -75,7 +82,13 @@ pub fn router(state: AppState) -> Router {
         .filter_map(|origin| origin.parse().ok())
         .collect();
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::OPTIONS])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
         .allow_headers(tower_http::cors::Any)
         .allow_origin(AllowOrigin::list(origins));
     Router::new()
@@ -88,10 +101,25 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/auth/refresh", post(auth::refresh))
         .route("/api/v1/auth/logout", post(auth::logout))
         .route("/api/v1/users/me", get(users::me).patch(users::update_me))
+        .route("/api/v1/users/{user_id}", get(users::public_profile))
+        .route(
+            "/api/v1/users/me/photos",
+            get(media::list_profile_photos).post(media::upload_profile_photo),
+        )
+        .route("/api/v1/users/me/avatar", post(media::upload_avatar))
+        .route(
+            "/api/v1/users/me/photos/{photo_id}",
+            axum::routing::delete(media::delete_profile_photo),
+        )
+        .route(
+            "/api/v1/users/me/photos/{photo_id}/content",
+            get(media::download_profile_photo),
+        )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+        .layer(DefaultBodyLimit::max(media::MAX_IMAGE_BYTES))
         .with_state(state)
 }
 

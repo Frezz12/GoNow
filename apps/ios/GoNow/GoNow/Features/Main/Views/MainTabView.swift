@@ -4,10 +4,11 @@ struct MainTabView: View {
     @EnvironmentObject private var appState: AppState
     @State private var isCreateTaskPresented = false
     @State private var isProfileRequiredPresented = false
+    @State private var isProfileSetupPresented = false
     @State private var selectedTab = 0
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             TabView(selection: $selectedTab) {
                 MapTabView { selectedTab = 3 }
                     .tabItem { Label("Карта", systemImage: "map.fill") }
@@ -23,18 +24,38 @@ struct MainTabView: View {
                     .tag(3)
             }
 
-            CenterCreateTaskButton {
-                if appState.currentUser?.profileStatus == .required {
-                    isProfileRequiredPresented = true
-                } else {
-                    isCreateTaskPresented = true
+            if selectedTab == 0 && appState.shouldShowProfileSetupPrompt {
+                ProfileSetupPrompt {
+                    appState.startProfileSetup()
+                    isProfileSetupPresented = true
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 164)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            .padding(.bottom, 30)
+
+            if selectedTab == 0 {
+                MapCreateTaskButton {
+                    if appState.currentUser?.profileStatus == .required {
+                        isProfileRequiredPresented = true
+                    } else {
+                        isCreateTaskPresented = true
+                    }
+                }
+                .padding(.bottom, 58)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .transition(.scale.combined(with: .opacity))
+            }
         }
         .tint(GoNowTheme.primary)
         .sheet(isPresented: $isCreateTaskPresented) {
             CreateTaskSheet()
+        }
+        .sheet(isPresented: $isProfileSetupPresented) {
+            if let user = appState.currentUser {
+                ProfileSetupFlow(user: user)
+            }
         }
         .alert("Сначала заполните профиль", isPresented: $isProfileRequiredPresented) {
             Button("Перейти в профиль") { selectedTab = 3 }
@@ -45,36 +66,50 @@ struct MainTabView: View {
     }
 }
 
-private struct CenterCreateTaskButton: View {
-    let action: () -> Void
+private struct MapCreateTaskButton: View {
+    let createAction: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            let shape = Capsule()
-            HStack(spacing: 8) {
+        let shape = Capsule()
+
+        Button(action: createAction) {
+            HStack(spacing: 9) {
                 Image(systemName: "plus")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(.white.opacity(0.18), in: Circle())
+                    .font(.headline.weight(.bold))
                 Text("Создать")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .font(.headline.weight(.semibold))
             }
-            .padding(.horizontal, 18)
-            .frame(minHeight: 54)
-            .background(GoNowTheme.buttonGradient, in: shape)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 24)
+            .frame(minWidth: 166, minHeight: 56)
+            .background(.ultraThinMaterial, in: shape)
+            .background(GoNowTheme.buttonGradient.opacity(0.76), in: shape)
+            .glassEffect(.regular, in: shape)
             .overlay {
-                shape.strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.84), .white.opacity(0.22)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
+                shape
+                    .fill(
+                        LinearGradient(
+                            colors: [.white.opacity(0.36), .white.opacity(0.08), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .blendMode(.screen)
+                    .allowsHitTesting(false)
             }
-            .shadow(color: GoNowTheme.primary.opacity(0.32), radius: 14, y: 8)
+            .overlay {
+                shape
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(0.86), .white.opacity(0.24)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            }
+            .shadow(color: GoNowTheme.accent.opacity(0.36), radius: 16, y: 7)
+            .shadow(color: GoNowTheme.primary.opacity(0.24), radius: 26, y: 10)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Создать задачу")

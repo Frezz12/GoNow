@@ -65,6 +65,24 @@ curl http://localhost:8080/health
 
 OpenAPI: `http://localhost:8080/api/openapi.json`; интерактивная документация: `http://localhost:8080/api/docs`.
 
+## Фотографии профиля и Cloudflare R2
+
+Backend хранит аватар и личные фотографии в любом S3-совместимом хранилище. Для Cloudflare R2 добавьте в локальный `.env` значения из созданного R2 API token:
+
+```env
+OBJECT_STORAGE_ENDPOINT=https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com
+OBJECT_STORAGE_BUCKET=gonow-development
+OBJECT_STORAGE_ACCESS_KEY_ID=<R2_ACCESS_KEY_ID>
+OBJECT_STORAGE_SECRET_ACCESS_KEY=<R2_SECRET_ACCESS_KEY>
+OBJECT_STORAGE_REGION=auto
+OBJECT_STORAGE_KEY_PREFIX=gonow
+OBJECT_STORAGE_FORCE_PATH_STYLE=true
+```
+
+Переменные `ACCESS_KEY_ID` и `SECRET_ACCESS_KEY` — только для backend: не добавляйте их в iOS-проект, исходники или Git. R2 bucket остаётся приватным: мобильные приложения загружают и получают изображения через авторизованные API GoNow. Поэтому для текущей схемы не нужны public bucket, public URL или CORS в R2.
+
+Полная инструкция первоначальной настройки, проверка и переход на другого S3-провайдера: [storage.md](storage.md).
+
 ## Полезные команды
 
 ```bash

@@ -44,6 +44,24 @@ struct UpdateProfilePayload: Codable, Sendable {
     let occupation: String?
     let bio: String?
     let interests: [String]
+    let relationshipStatus: String?
+    let locationLabel: String?
+    let latitude: Double?
+    let longitude: Double?
+    let showDistance: Bool
+}
+
+struct ProfilePhoto: Codable, Sendable, Identifiable, Hashable {
+    let id: UUID
+    let contentType: String
+    let bytes: Int
+    let createdAt: Date
+    let contentPath: String
+}
+
+struct ProfilePhotos: Codable, Sendable {
+    let avatar: ProfilePhoto?
+    let photos: [ProfilePhoto]
 }
 struct RegistrationData: Codable, Sendable { let email: String; let verificationRequired: Bool; let expiresAt: Date }
 
@@ -69,6 +87,11 @@ struct CurrentUser: Codable, Sendable, Equatable {
     let bio: String?
     let interests: [String]?
     let rating: Double?
+    let relationshipStatus: String?
+    let locationLabel: String?
+    let latitude: Double?
+    let longitude: Double?
+    let showDistance: Bool?
     let profileComplete: Bool?
     let createdAt: Date
 }
