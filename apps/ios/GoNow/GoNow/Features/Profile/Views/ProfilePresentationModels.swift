@@ -30,8 +30,8 @@ enum ProfileCompletionStatus: Equatable {
     var tint: Color {
         switch self {
         case .complete: return .clear
-        case .optional: return .orange
-        case .required: return .red
+        case .optional: return AppColors.warning
+        case .required: return AppColors.error
         }
     }
 

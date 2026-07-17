@@ -7,6 +7,7 @@ struct ProfileTabView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var isEditing = false
+    @State private var isSettingsPresented = false
     @State private var isGalleryExpanded = false
     @State private var isProfileSetupPresented = false
 
@@ -14,7 +15,7 @@ struct ProfileTabView: View {
         NavigationStack {
             GlassScreen {
                 if let user = appState.currentUser {
-                    VStack(spacing: 18) {
+                    VStack(spacing: AppSpacing.lg) {
                         if appState.shouldShowProfileSetupPrompt {
                             ProfileSetupPrompt {
                                 appState.startProfileSetup()
@@ -33,23 +34,24 @@ struct ProfileTabView: View {
                             }
                         }
 
-                        HStack(alignment: .center, spacing: 16) {
+                        HStack(alignment: .center, spacing: AppSpacing.md) {
                             AvatarPicker(initials: user.initials, size: 96)
                             VStack(alignment: .leading, spacing: 7) {
                                 Text(user.displayName)
-                                    .font(.title2.bold())
+                                    .font(AppTypography.screenTitle)
+                                    .foregroundStyle(AppColors.textPrimary)
                                 HStack(spacing: 6) {
                                     Image(systemName: "star.fill")
-                                        .foregroundStyle(GoNowTheme.primary)
+                                        .foregroundStyle(AppColors.accentPrimary)
                                     Text(user.ratingText)
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(AppTypography.bodyMedium)
                                 }
                                 .accessibilityElement(children: .combine)
                                 .accessibilityLabel("Рейтинг \(user.ratingText) из 5")
                                 if let birthDateAndAgeText = user.birthDateAndAgeText {
                                     Label(birthDateAndAgeText, systemImage: "calendar")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
+                                        .font(AppTypography.body)
+                                        .foregroundStyle(AppColors.textSecondary)
                                 }
                             }
                             Spacer(minLength: 0)
@@ -57,11 +59,11 @@ struct ProfileTabView: View {
                         .padding(.horizontal, 4)
 
                         GlassCard {
-                            VStack(alignment: .leading, spacing: 22) {
-                                VStack(alignment: .leading, spacing: 10) {
+                            VStack(alignment: .leading, spacing: AppSpacing.xl) {
+                                VStack(alignment: .leading, spacing: AppSpacing.sm) {
                                     HStack {
                                         Text("Фотографии")
-                                            .font(.headline)
+                                            .font(AppTypography.sectionTitle)
                                         Spacer(minLength: 8)
                                         Button {
                                             withAnimation(accessibilityReduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.84)) {
@@ -73,8 +75,8 @@ struct ProfileTabView: View {
                                                 systemImage: isGalleryExpanded ? "chevron.up" : "chevron.right"
                                             )
                                             .labelStyle(.titleAndIcon)
-                                            .font(.footnote.weight(.semibold))
-                                            .foregroundStyle(GoNowTheme.primary)
+                                            .font(AppTypography.captionStrong)
+                                            .foregroundStyle(AppColors.accentPrimary)
                                             .frame(minHeight: 44)
                                         }
                                         .buttonStyle(.plain)
@@ -86,29 +88,29 @@ struct ProfileTabView: View {
                                 ProfileDetailsGrid(user: user)
 
                                 if let bio = user.bio?.nonEmpty {
-                                    VStack(alignment: .leading, spacing: 8) {
+                                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
                                         Label("О себе", systemImage: "person.text.rectangle")
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(GoNowTheme.primary)
+                                            .font(AppTypography.captionStrong)
+                                            .foregroundStyle(AppColors.accentPrimary)
                                         Text(bio)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
+                                            .font(AppTypography.body)
+                                            .foregroundStyle(AppColors.textSecondary)
                                     }
                                 }
 
                                 if let interests = user.interests, !interests.isEmpty {
-                                    VStack(alignment: .leading, spacing: 10) {
+                                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
                                         Label("Интересы", systemImage: "tag")
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(GoNowTheme.primary)
+                                            .font(AppTypography.captionStrong)
+                                            .foregroundStyle(AppColors.accentPrimary)
                                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], alignment: .leading, spacing: 8) {
                                             ForEach(interests, id: \.self) { interest in
                                                 Text(interest)
-                                                    .font(.footnote.weight(.medium))
-                                                    .padding(.horizontal, 12)
-                                                    .padding(.vertical, 8)
-                                                    .background(GoNowTheme.primary.opacity(0.12), in: Capsule())
-                                                    .foregroundStyle(GoNowTheme.primary)
+                                                    .font(AppTypography.badge)
+                                                    .padding(.horizontal, AppSpacing.sm)
+                                                    .padding(.vertical, AppSpacing.xs)
+                                                    .background(AppColors.accentPrimary.opacity(0.12), in: Capsule())
+                                                    .foregroundStyle(AppColors.accentPrimary)
                                             }
                                         }
                                     }
@@ -144,6 +146,9 @@ struct ProfileTabView: View {
                 ProfileSetupFlow(user: user)
             }
         }
+        .sheet(isPresented: $isSettingsPresented) {
+            SettingsSheet()
+        }
     }
 
     private var profileSettingsMenu: some View {
@@ -152,10 +157,8 @@ struct ProfileTabView: View {
                 Label("Редактировать профиль", systemImage: "square.and.pencil")
             }
             Divider()
-            Button(role: .destructive) {
-                Task { await appState.logout() }
-            } label: {
-                Label("Выйти из аккаунта", systemImage: "rectangle.portrait.and.arrow.right")
+            Button { isSettingsPresented = true } label: {
+                Label("Настройки", systemImage: "gearshape")
             }
         } label: {
             Image(systemName: "gearshape")
@@ -179,22 +182,22 @@ private struct ProfileDetailsGrid: View {
         ].filter { $0.value != nil }
 
         if !fields.isEmpty {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: AppSpacing.sm) {
                 ForEach(fields) { field in
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
                         Image(systemName: field.icon)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(GoNowTheme.primary)
+                            .font(AppTypography.captionStrong)
+                            .foregroundStyle(AppColors.accentPrimary)
                         Text(field.title)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(AppTypography.caption)
+                            .foregroundStyle(AppColors.textSecondary)
                         Text(field.value ?? "")
-                            .font(.subheadline.weight(.medium))
+                            .font(AppTypography.bodyMedium)
                             .lineLimit(2)
                     }
                     .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-                    .padding(12)
-                    .background(.white.opacity(0.28), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .padding(AppSpacing.sm)
+                    .glassSurface(.subtle, cornerRadius: AppRadius.control)
                 }
             }
         }
@@ -213,29 +216,29 @@ struct ProfileCompletionNotice: View {
     var onDismiss: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppSpacing.sm) {
             Image(systemName: "exclamationmark.circle.fill")
                 .font(.title3)
                 .foregroundStyle(status.tint)
             Text(status.message)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
+                .font(AppTypography.bodyMedium)
+                .foregroundStyle(AppColors.textPrimary)
             Spacer(minLength: 0)
             if let onDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
                         .font(.footnote.weight(.bold))
                         .frame(width: 36, height: 36)
-                        .background(.white.opacity(0.52), in: Circle())
+                        .background(AppColors.surfaceElevated.opacity(0.72), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Закрыть подсказку профиля")
             }
         }
-        .padding(14)
-        .background(status.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(AppSpacing.md)
+        .background(status.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
                 .strokeBorder(status.tint.opacity(0.32), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)

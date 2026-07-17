@@ -12,17 +12,23 @@ struct ContentView: View {
             }
         }
         .task { await appState.restoreSession() }
+        .background(AppColors.backgroundPrimary)
     }
 }
 
 private struct LaunchView: View {
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "location.circle.fill").font(.system(size: 56)).foregroundStyle(GoNowTheme.primary)
-            Text("GoNow").font(.largeTitle.bold())
+        VStack(spacing: AppSpacing.md) {
+            Image(systemName: "location.circle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(AppColors.accentPrimary)
+            Text("GoNow")
+                .font(AppTypography.largeTitle)
+                .foregroundStyle(AppColors.textPrimary)
             ProgressView("Восстанавливаем сессию")
+                .tint(AppColors.accentPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(GoNowTheme.background)
+        .background(AppColors.backgroundPrimary)
     }
 }

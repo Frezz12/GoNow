@@ -58,7 +58,7 @@ struct ProfileEditorSheet: View {
                                     .font(.headline)
                                 Text("Нажмите на аватар, чтобы выбрать фото.")
                                     .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AppColors.textSecondary)
                             }
                         }
 
@@ -96,7 +96,7 @@ struct ProfileEditorSheet: View {
                                             .font(.subheadline.weight(.medium))
                                         Text("Другие увидят только «примерно 3 км от вас», без адреса.")
                                             .font(.footnote)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(AppColors.textSecondary)
                                     }
                                 }
                                 .tint(GoNowTheme.primary)
@@ -111,7 +111,7 @@ struct ProfileEditorSheet: View {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack(spacing: 8) {
                                     Image(systemName: "calendar.badge.exclamationmark")
-                                        .foregroundStyle(.red)
+                                        .foregroundStyle(AppColors.error)
                                     Text("Дата рождения обязательна")
                                         .font(.subheadline.weight(.semibold))
                                 }
@@ -126,14 +126,14 @@ struct ProfileEditorSheet: View {
                                 }
                                 Text("Без неё нельзя создавать задания и подавать заявки.")
                                     .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(AppColors.textSecondary)
                             }
                         }
 
                         ProfileInput(title: "Интересы", text: $interests, isFocused: $isInterestsFocused, capitalization: .sentences)
                         Text("Через запятую: прогулки, кино, йога")
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AppColors.textSecondary)
 
                         VStack(alignment: .leading, spacing: 6) {
                             Text("О себе")
@@ -146,13 +146,13 @@ struct ProfileEditorSheet: View {
                                 .liquidGlassField(isInvalid: false, isFocused: false)
                             Text("До 500 символов")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AppColors.textSecondary)
                         }
 
                         if let errorMessage {
                             Label(errorMessage, systemImage: "exclamationmark.circle.fill")
                                 .font(.footnote)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(AppColors.error)
                         }
 
                         Button(isSaving ? "Сохраняем…" : "Сохранить профиль") { save() }

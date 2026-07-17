@@ -8,9 +8,10 @@ struct GlassScreen<Content: View>: View {
             AuthBackdrop()
             ScrollView {
                 content
-                    .frame(maxWidth: 560, alignment: .leading)
-                    .padding(20)
-                    .padding(.bottom, 32)
+                    .frame(maxWidth: AppLayout.maxContentWidth, alignment: .leading)
+                    .padding(.horizontal, AppLayout.horizontalInset)
+                    .padding(.top, AppSpacing.xl)
+                    .padding(.bottom, AppLayout.bottomNavigationClearance)
             }
         }
     }

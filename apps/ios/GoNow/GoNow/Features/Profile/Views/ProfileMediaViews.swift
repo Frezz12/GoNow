@@ -19,14 +19,14 @@ struct ProfileAvatar: View {
             } else {
                 Text(initials)
                     .font(.system(size: size * 0.34, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppColors.textOnAccent)
                     .frame(width: size, height: size)
-                    .background(GoNowTheme.buttonGradient, in: Circle())
+                    .background(AppGradients.brand, in: Circle())
             }
         }
         .frame(width: size, height: size)
-        .overlay { Circle().strokeBorder(.white.opacity(0.76), lineWidth: 2) }
-        .shadow(color: GoNowTheme.primary.opacity(0.28), radius: 12, y: 6)
+        .overlay { Circle().strokeBorder(AppColors.glassBorder.opacity(0.76), lineWidth: 2) }
+        .appShadow(.floating)
         .accessibilityLabel("Аватар пользователя \(initials)")
     }
 }
@@ -40,15 +40,16 @@ struct AvatarPicker: View {
     @State private var isUploading = false
 
     var body: some View {
+        let avatarImageData = appState.avatarImageData
         PhotosPicker(selection: $selectedPhoto, matching: .images, photoLibrary: .shared()) {
             ZStack(alignment: .bottomTrailing) {
-                ProfileAvatar(initials: initials, size: size, imageData: appState.avatarImageData)
+                ProfileAvatar(initials: initials, size: size, imageData: avatarImageData)
                 Image(systemName: isUploading ? "arrow.triangle.2.circlepath" : "camera.fill")
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppColors.textOnAccent)
                     .frame(width: 40, height: 40)
-                    .background(GoNowTheme.primary, in: Circle())
-                    .overlay { Circle().strokeBorder(.white.opacity(0.82), lineWidth: 2) }
+                    .background(AppColors.accentPrimary, in: Circle())
+                    .overlay { Circle().strokeBorder(AppColors.glassBorder.opacity(0.82), lineWidth: 2) }
                     .offset(x: 2, y: 2)
                     .rotationEffect(.degrees(isUploading ? 360 : 0))
                     .animation(isUploading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isUploading)
@@ -56,8 +57,8 @@ struct AvatarPicker: View {
             .overlay {
                 if isHovering {
                     Circle()
-                        .fill(.black.opacity(0.28))
-                        .overlay { Image(systemName: "camera.fill").font(.title2).foregroundStyle(.white) }
+                        .fill(AppColors.textPrimary.opacity(0.28))
+                        .overlay { Image(systemName: "camera.fill").font(.title2).foregroundStyle(AppColors.textOnAccent) }
                         .frame(width: size, height: size)
                 }
             }
@@ -240,7 +241,7 @@ struct ProfilePhotoViewer: View {
                 viewerButton(icon: isDeleting ? "hourglass" : "trash", label: "Удалить фотографию") {
                     isDeleteConfirmationPresented = true
                 }
-                .foregroundStyle(.red)
+                .foregroundStyle(AppColors.error)
                 .disabled(isDeleting)
             }
             .padding(.horizontal, 20)
