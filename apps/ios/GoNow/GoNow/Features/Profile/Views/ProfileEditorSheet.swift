@@ -166,8 +166,9 @@ struct ProfileEditorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Готово") { dismiss() }
+                    Button(isSaving ? "Сохраняем…" : "Сохранить") { save() }
                         .foregroundStyle(GoNowTheme.primary)
+                        .disabled(isSaving)
                 }
             }
         }

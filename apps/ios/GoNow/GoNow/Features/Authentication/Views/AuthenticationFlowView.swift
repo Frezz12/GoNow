@@ -30,9 +30,7 @@ private struct LoginView: View {
     let onShowRegister: () -> Void
 
     var body: some View {
-        ZStack {
-            AuthBackdrop()
-            ScrollView {
+        AuthenticationScreen {
             VStack(alignment: .leading, spacing: AppSpacing.xl) {
                 brandHeader(title: "Рядом — интереснее", subtitle: "Войдите, чтобы находить людей для активностей рядом.")
                 VStack(spacing: AppSpacing.md) {
@@ -60,12 +58,6 @@ private struct LoginView: View {
                         .buttonStyle(.plain)
                 }
                 .frame(maxWidth: .infinity)
-            }
-            .padding(AppSpacing.xl)
-            .glassSurface(.prominent, cornerRadius: AppRadius.largeCard)
-            .padding(.horizontal, AppLayout.horizontalInset)
-            .padding(.vertical, AppSpacing.xl)
-            .frame(maxWidth: AppLayout.maxContentWidth, alignment: .leading)
             }
         }
         .sheet(isPresented: $isPasswordRecoveryPresented) {
@@ -105,9 +97,7 @@ private struct RegisterView: View {
     let onShowLogin: () -> Void
 
     var body: some View {
-        ZStack {
-            AuthBackdrop()
-            ScrollView {
+        AuthenticationScreen {
             VStack(alignment: .leading, spacing: AppSpacing.md) {
                 brandHeader(title: "Ваши планы начинаются здесь", subtitle: "Создайте аккаунт — это займёт меньше минуты.")
                 VStack(spacing: AppSpacing.md) {
@@ -135,12 +125,6 @@ private struct RegisterView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .padding(AppSpacing.xl)
-            .glassSurface(.prominent, cornerRadius: AppRadius.largeCard)
-            .padding(.horizontal, AppLayout.horizontalInset)
-            .padding(.vertical, AppSpacing.xl)
-            .frame(maxWidth: AppLayout.maxContentWidth, alignment: .leading)
-            }
         }
         .sheet(isPresented: Binding(get: { verificationEmail != nil }, set: { if !$0 { verificationEmail = nil } })) {
             if let verificationEmail { EmailVerificationSheet(email: verificationEmail) }
@@ -162,6 +146,37 @@ private struct RegisterView: View {
             do { verificationEmail = try await appState.register(name: name.trimmingCharacters(in: .whitespacesAndNewlines), email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password).email }
             catch let error as APIError { fieldErrors = error.fieldErrors; errorMessage = error.localizedDescription }
             catch { errorMessage = error.localizedDescription }
+        }
+    }
+}
+
+/// A single, centered authentication canvas. Forms use the backdrop directly instead of a detached card.
+private struct AuthenticationScreen<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack {
+            AuthBackdrop()
+
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack {
+                        Spacer(minLength: AppSpacing.lg)
+                        content
+                            .frame(maxWidth: AppLayout.maxContentWidth, alignment: .leading)
+                        Spacer(minLength: AppSpacing.lg)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                    .padding(.horizontal, AppLayout.horizontalInset)
+                    .padding(.vertical, AppSpacing.lg)
+                }
+                .scrollIndicators(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+            }
         }
     }
 }

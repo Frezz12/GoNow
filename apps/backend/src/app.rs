@@ -127,6 +127,7 @@ pub fn router(state: AppState) -> Router {
 async fn request_id(mut request: Request, next: Next) -> Response {
     let method = request.method().clone();
     let uri = request.uri().clone();
+    let (operation, action) = request_operation(&method, uri.path());
     let started_at = Instant::now();
     let request_id = request
         .headers()
@@ -142,6 +143,8 @@ async fn request_id(mut request: Request, next: Next) -> Response {
         }
     }
     info!(
+        operation,
+        action,
         method = %method,
         path = %uri.path(),
         query = ?uri.query(),
@@ -151,6 +154,43 @@ async fn request_id(mut request: Request, next: Next) -> Response {
         "HTTP request completed"
     );
     response
+}
+
+/// Stable operation names make development logs understandable without memorising URL paths.
+fn request_operation(method: &Method, path: &str) -> (&'static str, &'static str) {
+    match (method.as_str(), path) {
+        ("GET", "/health") => ("system.health", "Проверка сервисов"),
+        ("POST", "/api/v1/auth/register") => ("auth.register", "Регистрация"),
+        ("POST", "/api/v1/auth/verify-email") => ("auth.verify_email", "Подтверждение email"),
+        ("POST", "/api/v1/auth/forgot-password") => {
+            ("auth.forgot_password", "Запрос сброса пароля")
+        }
+        ("POST", "/api/v1/auth/reset-password") => ("auth.reset_password", "Смена пароля"),
+        ("POST", "/api/v1/auth/login") => ("auth.login", "Вход"),
+        ("POST", "/api/v1/auth/refresh") => ("auth.refresh", "Обновление сессии"),
+        ("POST", "/api/v1/auth/logout") => ("auth.logout", "Выход"),
+        ("GET", "/api/v1/weather/current") => ("weather.current", "Текущая погода"),
+        ("GET", "/api/v1/users/me") => ("users.me.get", "Получение своего профиля"),
+        ("PATCH", "/api/v1/users/me") => ("users.me.update", "Обновление профиля"),
+        ("GET", "/api/v1/users/me/photos") => ("media.photos.list", "Список фотографий"),
+        ("POST", "/api/v1/users/me/photos") => ("media.photo.upload", "Загрузка фотографии"),
+        ("POST", "/api/v1/users/me/avatar") => ("media.avatar.upload", "Загрузка аватара"),
+        ("DELETE", path) if path.starts_with("/api/v1/users/me/photos/") => {
+            ("media.photo.delete", "Удаление фотографии")
+        }
+        ("GET", path)
+            if path.ends_with("/content") && path.starts_with("/api/v1/users/me/photos/") =>
+        {
+            ("media.photo.download", "Загрузка содержимого фотографии")
+        }
+        ("GET", path) if path.starts_with("/api/v1/users/") => {
+            ("users.profile.get", "Получение публичного профиля")
+        }
+        ("GET", "/api/openapi.json") => ("docs.openapi", "OpenAPI-спецификация"),
+        (_, path) if path.starts_with("/api/docs") => ("docs.swagger", "Документация API"),
+        ("OPTIONS", _) => ("cors.preflight", "Проверка CORS"),
+        _ => ("http.request", "HTTP-запрос"),
+    }
 }
 
 #[utoipa::path(get, path = "/health", responses((status = 200, description = "Dependencies are available"), (status = 503, description = "A dependency is unavailable")))]

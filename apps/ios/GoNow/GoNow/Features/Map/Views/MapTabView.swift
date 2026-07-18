@@ -3,6 +3,7 @@ import Foundation
 
 struct MapTabView: View {
     @EnvironmentObject private var appState: AppState
+    @Binding var isSearchActive: Bool
     @State private var isNotificationsPresented = false
     private let notificationCount = 0
     let onProfileTap: () -> Void
@@ -12,37 +13,47 @@ struct MapTabView: View {
             MapPreviewSurface()
                 .ignoresSafeArea()
 
-            HStack(alignment: .top) {
-                MapWeatherWidget(
-                    profileLatitude: appState.currentUser?.latitude,
-                    profileLongitude: appState.currentUser?.longitude
-                )
-                Spacer(minLength: AppSpacing.md)
-
-                Menu {
-                    Button {
-                        onProfileTap()
-                    } label: {
-                        Label("Профиль", systemImage: "person.crop.circle")
-                    }
-
-                    Button {
-                        isNotificationsPresented = true
-                    } label: {
-                        Label(
-                            notificationCount > 0 ? "Уведомления (\(notificationCount))" : "Уведомления",
-                            systemImage: notificationCount > 0 ? "bell.badge.fill" : "bell"
+            Group {
+                if isSearchActive {
+                    MapTaskSearchBar(isSearchActive: $isSearchActive)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                } else {
+                    HStack(alignment: .top) {
+                        MapWeatherWidget(
+                            profileLatitude: appState.currentUser?.latitude,
+                            profileLongitude: appState.currentUser?.longitude,
+                            profileLocationLabel: appState.currentUser?.locationLabel
                         )
+                        Spacer(minLength: AppSpacing.md)
+
+                        Menu {
+                            Button {
+                                onProfileTap()
+                            } label: {
+                                Label("Профиль", systemImage: "person.crop.circle")
+                            }
+
+                            Button {
+                                isNotificationsPresented = true
+                            } label: {
+                                Label(
+                                    notificationCount > 0 ? "Уведомления (\(notificationCount))" : "Уведомления",
+                                    systemImage: notificationCount > 0 ? "bell.badge.fill" : "bell"
+                                )
+                            }
+                        } label: {
+                            profileAvatar
+                        }
+                        .accessibilityLabel(profileMenuAccessibilityLabel)
+                        .accessibilityHint("Открыть профиль или уведомления")
                     }
-                } label: {
-                    profileAvatar
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
-                .accessibilityLabel(profileMenuAccessibilityLabel)
-                .accessibilityHint("Открыть профиль или уведомления")
             }
             .padding(.top, AppSpacing.sm)
             .padding(.horizontal, AppLayout.horizontalInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .animation(AppAnimation.standard, value: isSearchActive)
         }
         .alert("Уведомления", isPresented: $isNotificationsPresented) {
             Button("Готово", role: .cancel) {}
@@ -78,6 +89,51 @@ struct MapTabView: View {
             return "Меню профиля"
         }
         return "Меню профиля. \(status.accessibilityDescription)"
+    }
+}
+
+private struct MapTaskSearchBar: View {
+    @Binding var isSearchActive: Bool
+    @State private var query = ""
+    @FocusState private var isSearchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let shape = Capsule()
+
+        HStack(spacing: AppSpacing.sm) {
+            Image(systemName: "magnifyingglass")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(AppColors.accentPrimary)
+
+            TextField("Поиск задач и активностей", text: $query)
+                .font(AppTypography.body)
+                .focused($isSearchFocused)
+                .submitLabel(.search)
+                .accessibilityLabel("Поиск задач и активностей")
+
+            Button {
+                withAnimation(reduceMotion ? nil : AppAnimation.standard) {
+                    isSearchActive = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(AppColors.textSecondary)
+                    .frame(width: AppLayout.minimumTouchTarget, height: AppLayout.minimumTouchTarget)
+                    .background(AppColors.surfaceElevated.opacity(0.55), in: Circle())
+            }
+            .buttonStyle(AppPressButtonStyle())
+            .accessibilityLabel("Закрыть поиск")
+        }
+        .padding(.leading, AppSpacing.md)
+        .padding(.trailing, AppSpacing.xxs)
+        .frame(minHeight: 56)
+        .background(.regularMaterial, in: shape)
+        .glassEffect(.regular, in: shape)
+        .overlay { shape.strokeBorder(AppColors.glassBorder.opacity(0.76), lineWidth: 1) }
+        .appShadow(.floating)
+        .task { isSearchFocused = true }
     }
 }
 
