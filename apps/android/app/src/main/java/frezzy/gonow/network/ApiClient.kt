@@ -10,8 +10,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
-import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import java.util.concurrent.TimeUnit
 
@@ -20,12 +22,13 @@ class ApiClient(private val tokenStore: TokenStore) {
     private val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
+        encodeDefaults = true
     }
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val original = chain.request()
             val token = tokenStore.getAccessToken()
@@ -38,9 +41,12 @@ class ApiClient(private val tokenStore: TokenStore) {
             }
             chain.proceed(request)
         }
-        .addInterceptor { chain ->
-            val response = chain.proceed(chain.request())
-            response
+        .apply {
+            if (BuildConfig.DEBUG) {
+                addInterceptor(HttpLoggingInterceptor().apply {
+                    level = HttpLoggingInterceptor.Level.BODY
+                })
+            }
         }
         .build()
 
@@ -67,6 +73,21 @@ class ApiClient(private val tokenStore: TokenStore) {
                 throw mapHttpError(e)
             }
         }
+    }
+
+    suspend fun <T> publicRequest(
+        block: suspend () -> T
+    ): T = withContext(Dispatchers.IO) {
+        try {
+            block()
+        } catch (e: retrofit2.HttpException) {
+            throw mapHttpError(e)
+        }
+    }
+
+    fun createImagePart(imageBytes: ByteArray, fileName: String): MultipartBody.Part {
+        val requestBody = imageBytes.toRequestBody("image/jpeg".toMediaType())
+        return MultipartBody.Part.createFormData("file", fileName, requestBody)
     }
 
     private suspend fun tryRefreshToken() = withContext(Dispatchers.IO) {

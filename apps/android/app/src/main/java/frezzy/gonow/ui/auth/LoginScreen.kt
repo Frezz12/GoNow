@@ -1,6 +1,6 @@
-package frezzy.gonow.ui.auth
+﻿package frezzy.gonow.ui.auth
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,7 +13,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -26,6 +25,7 @@ import frezzy.gonow.ui.theme.*
 fun LoginScreen(
     onLogin: (String, String) -> Unit,
     onNavigateToRegister: () -> Unit,
+    onForgotPassword: () -> Unit,
     isLoading: Boolean,
     fieldErrors: Map<String, String>,
     errorMessage: String?
@@ -34,7 +34,11 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
-    AuthBackdrop {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -46,39 +50,15 @@ fun LoginScreen(
 
             MapPointMarker(modifier = Modifier.size(84.dp))
             Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Рядом \u2014 интереснее",
-                style = MaterialTheme.typography.headlineLarge,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
+            Text("Рядом — интереснее", style = MaterialTheme.typography.headlineLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Войдите, чтобы находить людей для активностей рядом.",
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
+            Text("Войдите, чтобы находить людей для активностей рядом.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            AuthField(
-                label = "Логин",
-                value = email,
-                onValueChange = { email = it },
-                placeholder = "Email",
-                keyboardType = KeyboardType.Email,
-                error = fieldErrors["email"]
-            )
-
+            AuthField("Логин", email, { email = it }, "Email", KeyboardType.Email, fieldErrors["email"])
             Spacer(modifier = Modifier.height(16.dp))
-
-            AuthPasswordField(
-                label = "Пароль",
-                value = password,
-                onValueChange = { password = it },
-                isVisible = passwordVisible,
-                onToggleVisibility = { passwordVisible = !passwordVisible },
-                error = fieldErrors["password"]
-            )
+            AuthPasswordField("Пароль", password, { password = it }, passwordVisible, { passwordVisible = !passwordVisible }, fieldErrors["password"])
 
             if (errorMessage != null) {
                 Spacer(modifier = Modifier.height(12.dp))
@@ -86,30 +66,16 @@ fun LoginScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+            GradientPrimaryButton(text = "Войти", onClick = { onLogin(email, password) }, loading = isLoading)
 
-            GradientPrimaryButton(
-                text = "Войти",
-                onClick = { onLogin(email, password) },
-                loading = isLoading
-            )
+            Spacer(modifier = Modifier.height(12.dp))
+            TextButton(onClick = onNavigateToRegister, modifier = Modifier.fillMaxWidth()) {
+                Text("Впервые в GoNow? ", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+                Text("Создать аккаунт", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            TextButton(
-                onClick = onNavigateToRegister,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "Впервые в GoNow? ",
-                    color = TextSecondary,
-                    fontSize = 14.sp
-                )
-                Text(
-                    text = "Создать аккаунт",
-                    color = Primary,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                )
+            TextButton(onClick = onForgotPassword, modifier = Modifier.fillMaxWidth()) {
+                Text("Забыли пароль?", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
             }
 
             Spacer(modifier = Modifier.height(40.dp))
@@ -118,110 +84,73 @@ fun LoginScreen(
 }
 
 @Composable
-private fun AuthField(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    error: String?
-) {
-    val shape = RoundedCornerShape(18.dp)
-
+private fun AuthField(label: String, value: String, onValueChange: (String) -> Unit, placeholder: String, keyboardType: KeyboardType = KeyboardType.Text, error: String?) {
     Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(bottom = 6.dp)
-        )
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 6.dp))
         OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = { Text(placeholder, color = TextSecondary) },
+            value = value, onValueChange = onValueChange,
+            placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
             modifier = Modifier.fillMaxWidth(),
-            shape = shape,
+            shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedBorderColor = Border,
-                focusedBorderColor = Primary,
-                unfocusedContainerColor = GlassBackground,
-                focusedContainerColor = GlassBackground,
-                cursorColor = Primary,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                unfocusedPlaceholderColor = TextSecondary,
-                focusedPlaceholderColor = TextSecondary,
-                errorBorderColor = Danger,
-                errorCursorColor = Danger,
-                errorTextColor = TextPrimary,
-                errorPlaceholderColor = TextSecondary
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                cursorColor = MaterialTheme.colorScheme.primary,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                errorBorderColor = MaterialTheme.colorScheme.error,
+                errorCursorColor = MaterialTheme.colorScheme.error,
+                errorTextColor = MaterialTheme.colorScheme.onSurface,
+                errorPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
             ),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            supportingText = if (error != null) {
-                { ErrorMessage(text = error) }
-            } else null
+            supportingText = if (error != null) {{ ErrorMessage(text = error) }} else null
         )
     }
 }
 
 @Composable
-private fun AuthPasswordField(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    isVisible: Boolean,
-    onToggleVisibility: () -> Unit,
-    error: String?
-) {
-    val shape = RoundedCornerShape(18.dp)
-
+private fun AuthPasswordField(label: String, value: String, onValueChange: (String) -> Unit, isVisible: Boolean, onToggleVisibility: () -> Unit, error: String?) {
     Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(bottom = 6.dp)
-        )
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 6.dp))
         OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = { Text("Пароль", color = TextSecondary) },
+            value = value, onValueChange = onValueChange,
+            placeholder = { Text("Пароль", color = MaterialTheme.colorScheme.onSurfaceVariant) },
             modifier = Modifier.fillMaxWidth(),
-            shape = shape,
+            shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedBorderColor = Border,
-                focusedBorderColor = Primary,
-                unfocusedContainerColor = GlassBackground,
-                focusedContainerColor = GlassBackground,
-                cursorColor = Primary,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                unfocusedPlaceholderColor = TextSecondary,
-                focusedPlaceholderColor = TextSecondary,
-                errorBorderColor = Danger,
-                errorCursorColor = Danger,
-                errorTextColor = TextPrimary,
-                errorPlaceholderColor = TextSecondary
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                cursorColor = MaterialTheme.colorScheme.primary,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                errorBorderColor = MaterialTheme.colorScheme.error,
+                errorCursorColor = MaterialTheme.colorScheme.error,
+                errorTextColor = MaterialTheme.colorScheme.onSurface,
+                errorPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
             ),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            visualTransformation = if (isVisible) VisualTransformation.None
-            else PasswordVisualTransformation(),
+            visualTransformation = if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(onClick = onToggleVisibility) {
                     Icon(
-                        imageVector = if (isVisible) Icons.Filled.VisibilityOff
-                        else Icons.Filled.Visibility,
-                        contentDescription = if (isVisible) "Скрыть пароль"
-                        else "Показать пароль",
-                        tint = TextSecondary
+                        if (isVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        contentDescription = if (isVisible) "Скрыть пароль" else "Показать пароль",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             },
-            supportingText = if (error != null) {
-                { ErrorMessage(text = error) }
-            } else null
+            supportingText = if (error != null) {{ ErrorMessage(text = error) }} else null
         )
     }
 }

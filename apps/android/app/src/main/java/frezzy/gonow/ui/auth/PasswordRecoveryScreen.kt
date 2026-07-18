@@ -1,4 +1,4 @@
-package frezzy.gonow.ui.auth
+﻿package frezzy.gonow.ui.auth
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,7 +12,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -22,17 +21,22 @@ import androidx.compose.ui.unit.sp
 import frezzy.gonow.ui.theme.*
 
 @Composable
-fun RegisterScreen(
-    onRegister: (String, String, String, String) -> Unit,
-    onNavigateToLogin: () -> Unit,
+fun PasswordRecoveryScreen(
+    email: String,
+    onEmailChange: (String) -> Unit,
+    code: String,
+    onCodeChange: (String) -> Unit,
+    newPassword: String,
+    onNewPasswordChange: (String) -> Unit,
+    confirmation: String,
+    onConfirmationChange: (String) -> Unit,
+    isCodeSent: Boolean,
+    onRequestCode: () -> Unit,
+    onResetPassword: () -> Unit,
+    onDismiss: () -> Unit,
     isLoading: Boolean,
-    fieldErrors: Map<String, String>,
     errorMessage: String?
 ) {
-    var name by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
     AuthBackdrop {
@@ -45,69 +49,70 @@ fun RegisterScreen(
         ) {
             Spacer(modifier = Modifier.height(80.dp))
 
-            MapPointMarker(modifier = Modifier.size(84.dp))
+            MapPointMarker(modifier = Modifier.size(58.dp))
+
             Spacer(modifier = Modifier.height(16.dp))
+
             Text(
-                text = "Ваши планы начинаются здесь",
+                text = if (isCodeSent) "Установите новый пароль" else "Восстановление пароля",
                 style = MaterialTheme.typography.headlineLarge,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
+
             Spacer(modifier = Modifier.height(8.dp))
+
             Text(
-                text = "Создайте аккаунт \u2014 это займёт меньше минуты.",
+                text = if (isCodeSent)
+                    "Введите код из письма и придумайте новый пароль."
+                else
+                    "Введите email. Если аккаунт существует, мы отправим код для восстановления.",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            RegAuthField(
-                label = "Ваше имя",
-                value = name,
-                onValueChange = { name = it },
-                placeholder = "Имя",
-                error = fieldErrors["name"]
-            )
+            if (!isCodeSent) {
+                RecAuthField(
+                    label = "Email",
+                    value = email,
+                    onValueChange = onEmailChange,
+                    placeholder = "Email",
+                    keyboardType = KeyboardType.Email,
+                    error = null
+                )
+            } else {
+                RecAuthField(
+                    label = "Код из письма",
+                    value = code,
+                    onValueChange = { if (it.length <= 6) onCodeChange(it.filter { c -> c.isDigit() }) },
+                    placeholder = "000000",
+                    keyboardType = KeyboardType.Number,
+                    error = null
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            RegAuthField(
-                label = "Email",
-                value = email,
-                onValueChange = { email = it },
-                placeholder = "Email",
-                keyboardType = KeyboardType.Email,
-                error = fieldErrors["email"]
-            )
+                RecAuthPasswordField(
+                    label = "Новый пароль",
+                    value = newPassword,
+                    onValueChange = onNewPasswordChange,
+                    isVisible = passwordVisible,
+                    onToggleVisibility = { passwordVisible = !passwordVisible },
+                    error = null
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            RegAuthPasswordField(
-                label = "Пароль",
-                value = password,
-                onValueChange = { password = it },
-                isVisible = passwordVisible,
-                onToggleVisibility = { passwordVisible = !passwordVisible },
-                error = fieldErrors["password"]
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            RegAuthPasswordField(
-                label = "Повторите пароль",
-                value = confirmPassword,
-                onValueChange = { confirmPassword = it },
-                isVisible = passwordVisible,
-                onToggleVisibility = { passwordVisible = !passwordVisible },
-                error = fieldErrors["confirmPassword"]
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Минимум 8 символов. Не используйте очевидный пароль.",
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.fillMaxWidth()
-            )
+                RecAuthPasswordField(
+                    label = "Повторите пароль",
+                    value = confirmation,
+                    onValueChange = onConfirmationChange,
+                    isVisible = passwordVisible,
+                    onToggleVisibility = { passwordVisible = !passwordVisible },
+                    error = null
+                )
+            }
 
             if (errorMessage != null) {
                 Spacer(modifier = Modifier.height(12.dp))
@@ -117,37 +122,51 @@ fun RegisterScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             GradientPrimaryButton(
-                text = "Создать аккаунт",
-                onClick = { onRegister(name, email, password, confirmPassword) },
-                loading = isLoading
+                text = when {
+                    isLoading -> "Подождите..."
+                    isCodeSent -> "Изменить пароль"
+                    else -> "Получить код"
+                },
+                onClick = { if (isCodeSent) onResetPassword() else onRequestCode() },
+                loading = isLoading,
+                enabled = !isLoading
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            if (isCodeSent) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                TextButton(
+                    onClick = onRequestCode,
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Отправить код ещё раз",
+                        color = Primary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             TextButton(
-                onClick = onNavigateToLogin,
+                onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "Уже есть аккаунт? ",
+                    text = "Отмена",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp
                 )
-                Text(
-                    text = "Войти",
-                    color = Primary,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                )
             }
-
-            Spacer(modifier = Modifier.height(40.dp))
         }
     }
 }
 
 @Composable
-private fun RegAuthField(
+private fun RecAuthField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
@@ -155,8 +174,6 @@ private fun RegAuthField(
     keyboardType: KeyboardType = KeyboardType.Text,
     error: String?
 ) {
-    val shape = RoundedCornerShape(18.dp)
-
     Column {
         Text(
             text = label,
@@ -169,31 +186,29 @@ private fun RegAuthField(
             onValueChange = onValueChange,
             placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
             modifier = Modifier.fillMaxWidth(),
-            shape = shape,
+            shape = RoundedCornerShape(18.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                
                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
                 unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 errorBorderColor = MaterialTheme.colorScheme.error,
-                errorTextColor = MaterialTheme.colorScheme.onSurface,
-                errorPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+                errorTextColor = MaterialTheme.colorScheme.onSurface
             ),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            supportingText = if (error != null) {
-                { ErrorMessage(text = error) }
-            } else null
+            isError = error != null
         )
     }
 }
 
 @Composable
-private fun RegAuthPasswordField(
+private fun RecAuthPasswordField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
@@ -201,8 +216,6 @@ private fun RegAuthPasswordField(
     onToggleVisibility: () -> Unit,
     error: String?
 ) {
-    val shape = RoundedCornerShape(18.dp)
-
     Column {
         Text(
             text = label,
@@ -215,19 +228,19 @@ private fun RegAuthPasswordField(
             onValueChange = onValueChange,
             placeholder = { Text("Пароль", color = MaterialTheme.colorScheme.onSurfaceVariant) },
             modifier = Modifier.fillMaxWidth(),
-            shape = shape,
+            shape = RoundedCornerShape(18.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                
                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
                 unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 errorBorderColor = MaterialTheme.colorScheme.error,
-                errorTextColor = MaterialTheme.colorScheme.onSurface,
-                errorPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+                errorTextColor = MaterialTheme.colorScheme.onSurface
             ),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -244,9 +257,7 @@ private fun RegAuthPasswordField(
                     )
                 }
             },
-            supportingText = if (error != null) {
-                { ErrorMessage(text = error) }
-            } else null
+            isError = error != null
         )
     }
 }

@@ -1,7 +1,8 @@
-package frezzy.gonow.ui.main
+﻿package frezzy.gonow.ui.main
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -16,7 +17,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import frezzy.gonow.core.SettingsPrefs
+import frezzy.gonow.core.location.DeviceLocationProvider
+import frezzy.gonow.core.weather.WeatherViewModel
+import frezzy.gonow.models.ProfileStatus
 import frezzy.gonow.models.User
+import frezzy.gonow.ui.auth.AuthViewModel
 import frezzy.gonow.ui.theme.*
 
 data class BottomNavItem(
@@ -26,14 +32,15 @@ data class BottomNavItem(
     val unselectedIcon: ImageVector
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     user: User?,
-    viewModel: MainViewModel,
-    onRefreshProfile: () -> Unit,
-    onLogout: () -> Unit,
-    isRefreshing: Boolean
+    avatarBytes: ByteArray?,
+    viewModel: AuthViewModel,
+    weatherViewModel: WeatherViewModel,
+    locationProvider: DeviceLocationProvider,
+    settingsPrefs: SettingsPrefs,
+    onLogout: () -> Unit
 ) {
     val items = listOf(
         BottomNavItem(0, "Карта", Icons.Filled.Map, Icons.Outlined.Map),
@@ -42,117 +49,152 @@ fun MainScreen(
         BottomNavItem(3, "Профиль", Icons.Filled.Person, Icons.Outlined.Person)
     )
 
+    var selectedTab by remember { mutableIntStateOf(0) }
     var showCreateSheet by remember { mutableStateOf(false) }
+    var showProfileEditor by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var showProfileRequiredAlert by remember { mutableStateOf(false) }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        bottomBar = {
-            Box {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            bottomBar = {
                 NavigationBar(
-                    containerColor = GlassBackground,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
                     tonalElevation = 0.dp
                 ) {
                     items.forEachIndexed { index, item ->
-                        if (index == 2) {
-                            // Spacer for center FAB
-                            NavigationBarItem(
-                                icon = { Spacer(Modifier.size(24.dp)) },
-                                label = { Spacer(Modifier) },
-                                selected = false,
-                                onClick = {},
-                                enabled = false,
-                                colors = NavigationBarItemDefaults.colors(
-                                    disabledIconColor = Color.Transparent,
-                                    disabledTextColor = Color.Transparent
-                                )
-                            )
-                        }
                         NavigationBarItem(
                             icon = {
                                 Icon(
-                                    imageVector = if (viewModel.selectedTab == item.index)
-                                        item.selectedIcon else item.unselectedIcon,
+                                    imageVector = if (selectedTab == item.index) item.selectedIcon else item.unselectedIcon,
                                     contentDescription = item.label
                                 )
                             },
                             label = { Text(item.label, fontSize = 11.sp) },
-                            selected = viewModel.selectedTab == item.index,
-                            onClick = { viewModel.selectTab(item.index) },
+                            selected = selectedTab == item.index,
+                            onClick = { selectedTab = item.index },
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Primary,
-                                selectedTextColor = Primary,
-                                unselectedIconColor = TextSecondary,
-                                unselectedTextColor = TextSecondary,
-                                indicatorColor = Primary.copy(alpha = 0.12f)
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                             )
                         )
                     }
                 }
-
-                // Center FAB pill
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .offset(y = (-16).dp)
-                ) {
-                    val gradient = Brush.horizontalGradient(
-                        colors = listOf(ButtonStart, ButtonEnd)
+            }
+        ) { padding ->
+            Box(modifier = Modifier.padding(padding)) {
+                when (selectedTab) {
+                    0 -> MapTab(
+                        user = user,
+                        avatarBytes = avatarBytes,
+                        onNavigateToProfile = { selectedTab = 3 },
+                        weatherViewModel = weatherViewModel,
+                        locationProvider = locationProvider,
+                        settingsPrefs = settingsPrefs
                     )
-                    val shape = RoundedCornerShape(26.dp)
-
-                    Surface(
-                        onClick = { showCreateSheet = true },
-                        shape = shape,
-                        color = Color.Transparent,
-                        shadowElevation = 8.dp
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .background(gradient)
-                                .padding(horizontal = 18.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Surface(
-                                shape = androidx.compose.foundation.shape.CircleShape,
-                                color = Color.White.copy(alpha = 0.2f),
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Add,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.padding(4.dp)
-                                )
-                            }
-                            Text(
-                                text = "Создать",
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
+                    1 -> TasksTab()
+                    2 -> ChatTab()
+                    3 -> ProfileTab(
+                        user = user,
+                        avatarBytes = avatarBytes,
+                        profilePhotos = viewModel.uiState.profilePhotos.photos,
+                        onRefresh = { viewModel.refreshProfile() },
+                        onLogout = onLogout,
+                        onEditProfile = { showProfileEditor = true },
+                        onSettings = { showSettings = true },
+                        onUploadAvatar = { viewModel.uploadAvatar(it) },
+                        onUploadPhoto = { viewModel.uploadPhoto(it) },
+                        onDeletePhoto = { viewModel.deletePhoto(it) },
+                        isLoading = viewModel.uiState.isLoading
+                    )
                 }
             }
         }
-    ) { padding ->
-        Box(modifier = Modifier.padding(padding)) {
-            when (viewModel.selectedTab) {
-                MainViewModel.TAB_MAP -> MapTab()
-                MainViewModel.TAB_TASKS -> TasksTab()
-                MainViewModel.TAB_CHAT -> ChatTab()
-                MainViewModel.TAB_PROFILE -> ProfileTab(
-                    user = user,
-                    onRefresh = onRefreshProfile,
-                    onLogout = onLogout,
-                    isLoading = isRefreshing
-                )
+
+        // Floating "Создать" button — only on Map tab
+        if (selectedTab == 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 152.dp)
+            ) {
+                val gradient = Brush.horizontalGradient(colors = listOf(ButtonStart, ButtonEnd))
+                val shape = RoundedCornerShape(26.dp)
+
+                Surface(
+                    onClick = {
+                        if (user?.profileStatus == ProfileStatus.REQUIRED) {
+                            showProfileRequiredAlert = true
+                        } else {
+                            showCreateSheet = true
+                        }
+                    },
+                    shape = shape,
+                    color = Color.Transparent,
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .background(gradient)
+                            .padding(horizontal = 18.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = null, tint = Color.White, modifier = Modifier.padding(4.dp))
+                        }
+                        Text("Создать", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
+                }
             }
         }
     }
 
     if (showCreateSheet) {
         CreateTaskSheet(onDismiss = { showCreateSheet = false })
+    }
+
+    if (showProfileEditor && user != null) {
+        ProfileEditorSheet(
+            user = user,
+            onSave = { request -> viewModel.updateProfile(request); showProfileEditor = false },
+            onDismiss = { showProfileEditor = false },
+            isLoading = viewModel.uiState.isLoading,
+            errorMessage = viewModel.uiState.errorMessage
+        )
+    }
+
+    if (showSettings) {
+        SettingsSheet(
+            settingsPrefs = settingsPrefs,
+            onDismiss = { showSettings = false },
+            onLogout = { showSettings = false; onLogout() }
+        )
+    }
+
+    if (showProfileRequiredAlert) {
+        AlertDialog(
+            onDismissRequest = { showProfileRequiredAlert = false },
+            title = { Text("Сначала заполните профиль") },
+            text = { Text("Укажите дату рождения, чтобы создавать задания и подавать заявки на активности.") },
+            confirmButton = {
+                TextButton(onClick = { showProfileRequiredAlert = false; selectedTab = 3 }) {
+                    Text("Перейти в профиль")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showProfileRequiredAlert = false }) {
+                    Text("Позже")
+                }
+            }
+        )
     }
 }

@@ -167,8 +167,8 @@ fun GlassSecondaryButton(
     modifier: Modifier = Modifier,
     destructive: Boolean = false
 ) {
-    val textColor = if (destructive) Danger else TextPrimary
-    val borderColor = if (destructive) Danger.copy(alpha = 0.3f) else GlassBorder
+    val textColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+    val borderColor = if (destructive) MaterialTheme.colorScheme.error.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outline
 
     OutlinedButton(
         onClick = onClick,
@@ -176,7 +176,7 @@ fun GlassSecondaryButton(
             .fillMaxWidth()
             .height(48.dp),
         shape = RoundedCornerShape(24.dp),
-        colors = ButtonDefaults.outlinedButtonColors(containerColor = GlassBackground),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         border = ButtonDefaults.outlinedButtonBorder.copy(
             brush = Brush.horizontalGradient(
                 colors = listOf(borderColor, borderColor)
@@ -238,16 +238,14 @@ fun LiquidGlassField(
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedBorderColor = Color.Transparent,
                 focusedBorderColor = Color.Transparent,
-                unfocusedContainerColor = GlassBackground,
-                focusedContainerColor = GlassBackground,
-                cursorColor = Primary,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                focusedLabelColor = Primary,
-                unfocusedLabelColor = TextSecondary,
-                errorBorderColor = Danger,
-                errorCursorColor = Danger,
-                errorTextColor = TextPrimary
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                errorBorderColor = MaterialTheme.colorScheme.error,
+                errorTextColor = MaterialTheme.colorScheme.onSurface
             ),
             singleLine = singleLine,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
@@ -264,7 +262,7 @@ fun LiquidGlassField(
                             else Icons.Filled.Visibility,
                             contentDescription = if (passwordVisible) "Скрыть пароль"
                             else "Показать пароль",
-                            tint = TextSecondary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -288,7 +286,7 @@ fun ErrorMessage(text: String) {
         Icon(
             imageVector = Icons.Outlined.Error,
             contentDescription = null,
-            tint = Danger,
+            tint = MaterialTheme.colorScheme.error,
             modifier = Modifier.size(14.dp)
         )
         Text(text = text, color = Danger, fontSize = 12.sp)
@@ -346,12 +344,12 @@ fun TaskPreviewCard(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                Text(text = subtitle, fontSize = 13.sp, color = TextSecondary)
+                Text(text = subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp)
             )
         }

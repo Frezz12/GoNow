@@ -1,4 +1,4 @@
-package frezzy.gonow.ui.main
+﻿package frezzy.gonow.ui.main
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -36,7 +36,7 @@ fun ChatTab() {
             Icon(
                 imageVector = Icons.Outlined.ChatBubbleOutline,
                 contentDescription = null,
-                tint = TextSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(48.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))

@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -16,6 +17,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import frezzy.gonow.core.SettingsPrefs
+import frezzy.gonow.core.location.DeviceLocationProvider
+import frezzy.gonow.core.weather.WeatherViewModel
 import frezzy.gonow.data.AuthRepository
 import frezzy.gonow.data.DeviceIdentity
 import frezzy.gonow.data.TokenStore
@@ -24,13 +28,14 @@ import frezzy.gonow.network.ApiClient
 import frezzy.gonow.ui.auth.AuthFlow
 import frezzy.gonow.ui.auth.AuthViewModel
 import frezzy.gonow.ui.main.MainScreen
-import frezzy.gonow.ui.main.MainViewModel
 import frezzy.gonow.ui.theme.*
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var authViewModel: AuthViewModel
-    private val mainViewModel = MainViewModel()
+    private lateinit var weatherViewModel: WeatherViewModel
+    private lateinit var locationProvider: DeviceLocationProvider
+    private lateinit var settingsPrefs: SettingsPrefs
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,16 +46,18 @@ class MainActivity : ComponentActivity() {
         val apiClient = ApiClient(tokenStore)
         val authRepository = AuthRepository(apiClient, tokenStore, deviceIdentity)
         authViewModel = AuthViewModel(authRepository)
+        weatherViewModel = WeatherViewModel()
+        locationProvider = DeviceLocationProvider(applicationContext)
+        settingsPrefs = SettingsPrefs.getInstance(applicationContext)
 
         setContent {
-            GoNowTheme {
+            GoNowTheme(settingsPrefs = settingsPrefs) {
                 val state = authViewModel.uiState
 
                 AnimatedContent(
                     targetState = state.phase,
                     transitionSpec = {
-                        fadeIn(animationSpec = androidx.compose.animation.core.tween(400)) togetherWith
-                            fadeOut(animationSpec = androidx.compose.animation.core.tween(200))
+                        fadeIn(animationSpec = tween(400)) togetherWith fadeOut(animationSpec = tween(200))
                     },
                     label = "root_content"
                 ) { phase ->
@@ -59,10 +66,12 @@ class MainActivity : ComponentActivity() {
                         is AuthPhase.Unauthenticated -> AuthFlow(viewModel = authViewModel)
                         is AuthPhase.Authenticated -> MainScreen(
                             user = state.user,
-                            viewModel = mainViewModel,
-                            onRefreshProfile = authViewModel::refreshProfile,
-                            onLogout = authViewModel::logout,
-                            isRefreshing = state.isLoading
+                            avatarBytes = state.avatarBytes,
+                            viewModel = authViewModel,
+                            weatherViewModel = weatherViewModel,
+                            locationProvider = locationProvider,
+                            settingsPrefs = settingsPrefs,
+                            onLogout = authViewModel::logout
                         )
                     }
                 }
@@ -74,35 +83,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun LaunchScreen() {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(BackdropTop, BackdropMid, BackdropBottom)
-                )
-            ),
+        modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BackdropTop, BackdropMid, BackdropBottom))),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             MapPointMarker()
-            Text(
-                text = "GoNow",
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
-            CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
-                color = Primary,
-                strokeWidth = 2.dp
-            )
-            Text(
-                text = "Восстанавливаем сессию",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Text("GoNow", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.primary, strokeWidth = 2.dp)
+            Text("Восстанавливаем сессию", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
