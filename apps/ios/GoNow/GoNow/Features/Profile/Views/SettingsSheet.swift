@@ -1,75 +1,65 @@
 import SwiftUI
 
-struct SettingsSheet: View {
+struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @AppStorage("gonow.weather.temperature-unit") private var temperatureUnit: TemperatureUnit = .automatic
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                AuthBackdrop()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                        GlassCard(style: .prominent) {
-                            ThemeSelector()
-                        }
+        ZStack {
+            AuthBackdrop()
+            ScrollView {
+                VStack(alignment: .leading, spacing: AppSpacing.lg) {
+                    GlassCard(style: .prominent) {
+                        ThemeSelector()
+                    }
 
-                        GlassCard {
-                            VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                Label("Погода", systemImage: "cloud.sun.fill")
-                                    .font(AppTypography.sectionTitle)
-                                    .foregroundStyle(AppColors.textPrimary)
-                                Text("Единицы температуры для виджета на карте.")
-                                    .font(AppTypography.caption)
-                                    .foregroundStyle(AppColors.textSecondary)
-                                Picker("Температура", selection: $temperatureUnit) {
-                                    ForEach(TemperatureUnit.allCases) { unit in
-                                        Text(unit.title).tag(unit)
-                                    }
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                            Label("Погода", systemImage: "cloud.sun.fill")
+                                .font(AppTypography.sectionTitle)
+                                .foregroundStyle(AppColors.textPrimary)
+                            Text("Единицы температуры для виджета на карте.")
+                                .font(AppTypography.caption)
+                                .foregroundStyle(AppColors.textSecondary)
+                            Picker("Температура", selection: $temperatureUnit) {
+                                ForEach(TemperatureUnit.allCases) { unit in
+                                    Text(unit.title).tag(unit)
                                 }
-                                .pickerStyle(.segmented)
-                                .accessibilityHint("Авто использует региональные настройки устройства")
                             }
-                        }
-
-                        GlassCard {
-                            VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                Label("Аккаунт", systemImage: "person.crop.circle")
-                                    .font(AppTypography.sectionTitle)
-                                    .foregroundStyle(AppColors.textPrimary)
-                                Text("Выход завершит сессию только на этом устройстве.")
-                                    .font(AppTypography.caption)
-                                    .foregroundStyle(AppColors.textSecondary)
-                                Button {
-                                    Task {
-                                        await appState.logout()
-                                        dismiss()
-                                    }
-                                } label: {
-                                    Label("Выйти из аккаунта", systemImage: "rectangle.portrait.and.arrow.right")
-                                }
-                                .buttonStyle(GlassSecondaryButtonStyle(isDestructive: true))
-                                .padding(.top, AppSpacing.xs)
-                            }
+                            .pickerStyle(.segmented)
+                            .accessibilityHint("Авто использует региональные настройки устройства")
                         }
                     }
-                    .frame(maxWidth: AppLayout.maxContentWidth)
-                    .padding(.horizontal, AppLayout.horizontalInset)
-                    .padding(.vertical, AppSpacing.xl)
+
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                            Label("Аккаунт", systemImage: "person.crop.circle")
+                                .font(AppTypography.sectionTitle)
+                                .foregroundStyle(AppColors.textPrimary)
+                            Text("Выход завершит сессию только на этом устройстве.")
+                                .font(AppTypography.caption)
+                                .foregroundStyle(AppColors.textSecondary)
+                            Button {
+                                Task {
+                                    await appState.logout()
+                                    dismiss()
+                                }
+                            } label: {
+                                Label("Выйти из аккаунта", systemImage: "rectangle.portrait.and.arrow.right")
+                            }
+                            .buttonStyle(GlassSecondaryButtonStyle(isDestructive: true))
+                            .padding(.top, AppSpacing.xs)
+                        }
+                    }
                 }
-            }
-            .navigationTitle("Настройки")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Готово") { dismiss() }
-                        .foregroundStyle(AppColors.accentPrimary)
-                }
+                .frame(maxWidth: AppLayout.maxContentWidth)
+                .padding(.horizontal, AppLayout.horizontalInset)
+                .padding(.vertical, AppSpacing.xl)
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .navigationTitle("Настройки")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

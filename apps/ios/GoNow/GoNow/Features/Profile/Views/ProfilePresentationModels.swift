@@ -66,6 +66,11 @@ extension CurrentUser {
     var ratingText: String {
         String(format: "%.1f", min(max(rating ?? 5, 1), 5))
     }
+    var profileLocationText: String? {
+        let values = [city?.nonEmpty, locationLabel?.nonEmpty].compactMap { $0 }
+        guard !values.isEmpty else { return nil }
+        return Array(NSOrderedSet(array: values)).compactMap { $0 as? String }.joined(separator: " · ")
+    }
     var profileStatus: ProfileCompletionStatus {
         if profileComplete == false || birthDate == nil {
             return .required

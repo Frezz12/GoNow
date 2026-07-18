@@ -40,18 +40,17 @@ struct ProfileTabView: View {
                                 Text(user.displayName)
                                     .font(AppTypography.screenTitle)
                                     .foregroundStyle(AppColors.textPrimary)
-                                HStack(spacing: 6) {
-                                    Image(systemName: "star.fill")
-                                        .foregroundStyle(AppColors.accentPrimary)
-                                    Text(user.ratingText)
-                                        .font(AppTypography.bodyMedium)
-                                }
-                                .accessibilityElement(children: .combine)
-                                .accessibilityLabel("Рейтинг \(user.ratingText) из 5")
                                 if let birthDateAndAgeText = user.birthDateAndAgeText {
                                     Label(birthDateAndAgeText, systemImage: "calendar")
                                         .font(AppTypography.body)
                                         .foregroundStyle(AppColors.textSecondary)
+                                }
+                                if let locationText = user.profileLocationText {
+                                    Label(locationText, systemImage: "mappin.and.ellipse")
+                                        .font(AppTypography.body)
+                                        .foregroundStyle(AppColors.textSecondary)
+                                        .lineLimit(1)
+                                        .accessibilityLabel("Местоположение: \(locationText)")
                                 }
                             }
                             Spacer(minLength: 0)
@@ -134,7 +133,14 @@ struct ProfileTabView: View {
             } message: {
                 Text(appState.sessionError ?? "")
             }
-            .navigationBarItems(trailing: profileSettingsMenu)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    profileSettingsButton
+                }
+            }
+            .navigationDestination(isPresented: $isSettingsPresented) {
+                SettingsView()
+            }
         }
         .sheet(isPresented: $isEditing) {
             if let user = appState.currentUser {
@@ -146,17 +152,13 @@ struct ProfileTabView: View {
                 ProfileSetupFlow(user: user)
             }
         }
-        .sheet(isPresented: $isSettingsPresented) {
-            SettingsSheet()
-        }
     }
 
-    private var profileSettingsMenu: some View {
+    private var profileSettingsButton: some View {
         Menu {
             Button { isEditing = true } label: {
                 Label("Редактировать профиль", systemImage: "square.and.pencil")
             }
-            Divider()
             Button { isSettingsPresented = true } label: {
                 Label("Настройки", systemImage: "gearshape")
             }
@@ -165,8 +167,8 @@ struct ProfileTabView: View {
                 .font(.body.weight(.semibold))
                 .frame(width: 44, height: 44)
         }
-        .accessibilityLabel("Настройки профиля")
-        .accessibilityHint("Открыть меню, включая выход из аккаунта")
+        .accessibilityLabel("Меню профиля")
+        .accessibilityHint("Редактировать профиль или открыть настройки")
     }
 }
 
@@ -177,8 +179,6 @@ private struct ProfileDetailsGrid: View {
         let fields = [
             DetailField(icon: "briefcase.fill", title: "Занятие", value: user.occupation?.nonEmpty),
             DetailField(icon: "heart.text.square", title: "Семейный статус", value: user.relationshipStatus?.nonEmpty),
-            DetailField(icon: "building.2.fill", title: "Город", value: user.city?.nonEmpty),
-            DetailField(icon: "location.fill", title: "Место", value: user.locationLabel?.nonEmpty),
         ].filter { $0.value != nil }
 
         if !fields.isEmpty {

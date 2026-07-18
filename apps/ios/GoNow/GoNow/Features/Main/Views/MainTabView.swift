@@ -2,17 +2,19 @@ import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isCreateTaskPresented = false
     @State private var isProfileRequiredPresented = false
     @State private var isProfileSetupPresented = false
     @State private var selectedTab: AppTab = .map
+    @State private var isMapSearchActive = false
 
     var body: some View {
         ZStack {
             // The native tab bar renders with the system Liquid Glass treatment on iOS 26.
             // It is more legible and responsive than a custom material imitation.
             TabView(selection: $selectedTab) {
-                MapTabView { selectedTab = .profile }
+                MapTabView(isSearchActive: $isMapSearchActive) { selectedTab = .profile }
                     .tabItem { Label(AppTab.map.title, systemImage: AppTab.map.symbol) }
                     .tag(AppTab.map)
                 TasksTabView()
@@ -48,9 +50,23 @@ struct MainTabView: View {
                 .padding(.bottom, 58)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .transition(.scale.combined(with: .opacity))
+
+                MapSearchButton {
+                    withAnimation(reduceMotion ? nil : AppAnimation.standard) {
+                        isMapSearchActive = true
+                    }
+                }
+                .padding(.trailing, AppLayout.horizontalInset)
+                .padding(.bottom, 58)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
         }
         .tint(AppColors.accentPrimary)
+        .onChange(of: selectedTab) { _, tab in
+            if tab != .map {
+                isMapSearchActive = false
+            }
+        }
         .sheet(isPresented: $isCreateTaskPresented) {
             CreateTaskSheet()
         }
@@ -65,6 +81,28 @@ struct MainTabView: View {
         } message: {
             Text("Укажите дату рождения, чтобы создавать задания и подавать заявки на активности.")
         }
+    }
+}
+
+private struct MapSearchButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        let shape = Circle()
+
+        Button(action: action) {
+            Image(systemName: "magnifyingglass")
+                .font(.headline.weight(.semibold))
+                .frame(width: 54, height: 54)
+        }
+        .foregroundStyle(AppColors.textPrimary)
+        .background(.regularMaterial, in: shape)
+        .glassEffect(.regular, in: shape)
+        .overlay { shape.strokeBorder(AppColors.glassBorder.opacity(0.72), lineWidth: 1) }
+        .appShadow(.floating)
+        .buttonStyle(AppPressButtonStyle())
+        .accessibilityLabel("Поиск задач")
+        .accessibilityHint("Открыть поиск задач и активностей")
     }
 }
 
