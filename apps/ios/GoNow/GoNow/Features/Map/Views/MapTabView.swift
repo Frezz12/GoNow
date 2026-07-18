@@ -21,8 +21,7 @@ struct MapTabView: View {
                     HStack(alignment: .top) {
                         MapWeatherWidget(
                             profileLatitude: appState.currentUser?.latitude,
-                            profileLongitude: appState.currentUser?.longitude,
-                            profileLocationLabel: appState.currentUser?.locationLabel
+                            profileLongitude: appState.currentUser?.longitude
                         )
                         Spacer(minLength: AppSpacing.md)
 
@@ -30,14 +29,14 @@ struct MapTabView: View {
                             Button {
                                 onProfileTap()
                             } label: {
-                                Label("Профиль", systemImage: "person.crop.circle")
+                                Label("tab.profile", systemImage: "person.crop.circle")
                             }
 
                             Button {
                                 isNotificationsPresented = true
                             } label: {
                                 Label(
-                                    notificationCount > 0 ? "Уведомления (\(notificationCount))" : "Уведомления",
+                                    notificationCount > 0 ? L10n.string("map.notifications.count \(notificationCount)") : L10n.string("map.notifications.title"),
                                     systemImage: notificationCount > 0 ? "bell.badge.fill" : "bell"
                                 )
                             }
@@ -45,7 +44,7 @@ struct MapTabView: View {
                             profileAvatar
                         }
                         .accessibilityLabel(profileMenuAccessibilityLabel)
-                        .accessibilityHint("Открыть профиль или уведомления")
+                        .accessibilityHint("map.profile_menu.hint")
                     }
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
@@ -55,10 +54,10 @@ struct MapTabView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .animation(AppAnimation.standard, value: isSearchActive)
         }
-        .alert("Уведомления", isPresented: $isNotificationsPresented) {
-            Button("Готово", role: .cancel) {}
+        .alert("map.notifications.title", isPresented: $isNotificationsPresented) {
+            Button("common.done", role: .cancel) {}
         } message: {
-            Text("Новых уведомлений пока нет.")
+            Text("map.notifications.empty")
         }
     }
 
@@ -86,7 +85,7 @@ struct MapTabView: View {
     private var profileMenuAccessibilityLabel: String {
         guard appState.showsProfileCompletionIndicator,
               let status = appState.currentUser?.profileStatus else {
-            return "Меню профиля"
+            return L10n.string("profile.menu")
         }
         return "Меню профиля. \(status.accessibilityDescription)"
     }
@@ -106,11 +105,11 @@ private struct MapTaskSearchBar: View {
                 .font(.body.weight(.semibold))
                 .foregroundStyle(AppColors.accentPrimary)
 
-            TextField("Поиск задач и активностей", text: $query)
+            TextField("map.search.placeholder", text: $query)
                 .font(AppTypography.body)
                 .focused($isSearchFocused)
                 .submitLabel(.search)
-                .accessibilityLabel("Поиск задач и активностей")
+                .accessibilityLabel("map.search.placeholder")
 
             Button {
                 withAnimation(reduceMotion ? nil : AppAnimation.standard) {
@@ -124,7 +123,7 @@ private struct MapTaskSearchBar: View {
                     .background(AppColors.surfaceElevated.opacity(0.55), in: Circle())
             }
             .buttonStyle(AppPressButtonStyle())
-            .accessibilityLabel("Закрыть поиск")
+            .accessibilityLabel("map.search.close")
         }
         .padding(.leading, AppSpacing.md)
         .padding(.trailing, AppSpacing.xxs)
@@ -193,6 +192,6 @@ private struct MapPreviewSurface: View {
                     .position(x: proxy.size.width * 0.70, y: proxy.size.height * 0.62)
             }
         }
-        .accessibilityLabel("Карта активностей")
+        .accessibilityLabel("map.accessibility.label")
     }
 }

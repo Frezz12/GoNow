@@ -22,10 +22,10 @@ private struct LaunchView: View {
             Image(systemName: "location.circle.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(AppColors.accentPrimary)
-            Text("GoNow")
+            Text(verbatim: "GoNow")
                 .font(AppTypography.largeTitle)
                 .foregroundStyle(AppColors.textPrimary)
-            ProgressView("Восстанавливаем сессию")
+            ProgressView("launch.restoring_session")
                 .tint(AppColors.accentPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

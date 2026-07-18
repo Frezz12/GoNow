@@ -10,9 +10,9 @@ enum ThemeMode: String, CaseIterable, Codable, Identifiable {
 
     var title: String {
         switch self {
-        case .system: "Системная"
-        case .light: "Светлая"
-        case .dark: "Тёмная"
+        case .system: L10n.string("settings.theme.system")
+        case .light: L10n.string("settings.theme.light")
+        case .dark: L10n.string("settings.theme.dark")
         }
     }
 
@@ -52,11 +52,11 @@ struct ThemeSelector: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            Text("Оформление")
+            Text("settings.theme.title")
                 .font(AppTypography.sectionTitle)
                 .foregroundStyle(AppColors.textPrimary)
 
-            Text("Системная тема автоматически повторяет настройки оформления iPhone.")
+            Text("settings.theme.description")
                 .font(AppTypography.caption)
                 .foregroundStyle(AppColors.textSecondary)
 
@@ -84,7 +84,7 @@ struct ThemeSelector: View {
                         }
                     }
                     .buttonStyle(AppPressButtonStyle())
-                    .accessibilityLabel("Тема: \(mode.title)")
+                    .accessibilityLabel(L10n.format("settings.theme.accessibility %@", mode.title))
                     .accessibilityAddTraits(themeManager.mode == mode ? .isSelected : [])
                 }
             }

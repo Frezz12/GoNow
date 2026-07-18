@@ -75,11 +75,11 @@ struct MainTabView: View {
                 ProfileSetupFlow(user: user)
             }
         }
-        .alert("Сначала заполните профиль", isPresented: $isProfileRequiredPresented) {
-            Button("Перейти в профиль") { selectedTab = .profile }
-            Button("Позже", role: .cancel) {}
+        .alert("profile.required.title", isPresented: $isProfileRequiredPresented) {
+            Button("profile.required.open") { selectedTab = .profile }
+            Button("common.cancel", role: .cancel) {}
         } message: {
-            Text("Укажите дату рождения, чтобы создавать задания и подавать заявки на активности.")
+            Text("profile.required.message")
         }
     }
 }
@@ -101,8 +101,8 @@ private struct MapSearchButton: View {
         .overlay { shape.strokeBorder(AppColors.glassBorder.opacity(0.72), lineWidth: 1) }
         .appShadow(.floating)
         .buttonStyle(AppPressButtonStyle())
-        .accessibilityLabel("Поиск задач")
-        .accessibilityHint("Открыть поиск задач и активностей")
+        .accessibilityLabel("map.search.accessibility")
+        .accessibilityHint("map.search.hint")
     }
 }
 
@@ -116,7 +116,7 @@ private struct MapCreateTaskButton: View {
             HStack(spacing: 9) {
                 Image(systemName: "plus")
                     .font(.headline.weight(.bold))
-                Text("Создать")
+                Text("task.create.action")
                     .font(.headline.weight(.semibold))
             }
             .foregroundStyle(AppColors.textOnAccent)
@@ -150,8 +150,8 @@ private struct MapCreateTaskButton: View {
             .appShadow(.floating)
         }
         .buttonStyle(AppPressButtonStyle())
-        .accessibilityLabel("Создать задачу")
-        .accessibilityHint("Открыть форму создания новой задачи")
+        .accessibilityLabel("task.create.accessibility")
+        .accessibilityHint("task.create.hint")
     }
 }
 
@@ -165,34 +165,34 @@ private struct CreateTaskSheet: View {
             ZStack {
                 AuthBackdrop()
                 VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                    Text("Новая задача")
+                    Text("task.create.title")
                         .font(.title.bold())
-                    Text("Начните с названия. Настройки времени, места и участников появятся следующим шагом.")
+                    Text("task.create.description")
                         .font(.subheadline)
                         .foregroundStyle(AppColors.textSecondary)
 
                     VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                        Text("Название")
+                        Text("task.create.name.label")
                             .font(.subheadline.weight(.medium))
-                        TextField("Например, прогулка в парке", text: $title)
+                        TextField("task.create.name.placeholder", text: $title)
                             .focused($isTitleFocused)
                             .padding(.horizontal, AppSpacing.md)
                             .frame(minHeight: 54)
                             .liquidGlassField(isInvalid: false, isFocused: isTitleFocused)
                     }
 
-                    Button("Продолжить") { dismiss() }
+                    Button("common.continue") { dismiss() }
                         .buttonStyle(GradientPrimaryButtonStyle())
                         .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Spacer()
                 }
                 .padding(AppSpacing.xl)
             }
-            .navigationTitle("Создать")
+            .navigationTitle("task.create.action")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Закрыть") { dismiss() }
+                    Button("common.close") { dismiss() }
                         .foregroundStyle(AppColors.accentPrimary)
                 }
             }

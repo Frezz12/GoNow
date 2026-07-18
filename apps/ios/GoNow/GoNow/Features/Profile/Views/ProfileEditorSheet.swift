@@ -54,25 +54,25 @@ struct ProfileEditorSheet: View {
                         HStack(spacing: 16) {
                             AvatarPicker(initials: displayName.initials, size: 72)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Фотография профиля")
+                                Text("profile.avatar.title")
                                     .font(.headline)
-                                Text("Нажмите на аватар, чтобы выбрать фото.")
+                                Text("profile.avatar.helper")
                                     .font(.footnote)
                                     .foregroundStyle(AppColors.textSecondary)
                             }
                         }
 
-                        ProfileInput(title: "Имя", text: $displayName, isFocused: $isNameFocused, contentType: .name, capitalization: .words)
-                        ProfileInput(title: "Город", text: $city, isFocused: $isCityFocused, contentType: .addressCity, capitalization: .words)
-                        ProfileInput(title: "Чем занимаетесь", text: $occupation, isFocused: $isOccupationFocused, capitalization: .sentences)
-                        ProfileInput(title: "Семейный статус", text: $relationshipStatus, isFocused: $isRelationshipFocused, capitalization: .sentences)
+                        ProfileInput(title: L10n.string("profile.field.name"), text: $displayName, isFocused: $isNameFocused, contentType: .name, capitalization: .words)
+                        ProfileInput(title: L10n.string("profile.field.city"), text: $city, isFocused: $isCityFocused, contentType: .addressCity, capitalization: .words)
+                        ProfileInput(title: L10n.string("profile.field.occupation"), text: $occupation, isFocused: $isOccupationFocused, capitalization: .sentences)
+                        ProfileInput(title: L10n.string("profile.field.relationship"), text: $relationshipStatus, isFocused: $isRelationshipFocused, capitalization: .sentences)
 
                         GlassCard {
                             VStack(alignment: .leading, spacing: 12) {
-                                Label("Место", systemImage: "location.fill")
+                                Label("profile.location.title", systemImage: "location.fill")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(GoNowTheme.primary)
-                                TextField("Район, город или место", text: $locationLabel)
+                                TextField("profile.location.placeholder", text: $locationLabel)
                                     .textContentType(.fullStreetAddress)
                                     .textInputAutocapitalization(.words)
                                     .focused($isLocationFocused)
@@ -83,7 +83,7 @@ struct ProfileEditorSheet: View {
                                     locationPicker.requestCurrentLocation()
                                 } label: {
                                     Label(
-                                        locationPicker.isRequesting ? "Определяем место…" : "Использовать моё местоположение",
+                                        locationPicker.isRequesting ? L10n.string("location.resolving") : L10n.string("location.use_current"),
                                         systemImage: "location.circle.fill"
                                     )
                                 }
@@ -92,9 +92,9 @@ struct ProfileEditorSheet: View {
 
                                 Toggle(isOn: $showDistance) {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("Показывать расстояние до меня")
+                                        Text("profile.distance.toggle")
                                             .font(.subheadline.weight(.medium))
-                                        Text("Другие увидят только «примерно 3 км от вас», без адреса.")
+                                        Text("profile.distance.helper")
                                             .font(.footnote)
                                             .foregroundStyle(AppColors.textSecondary)
                                     }
@@ -112,31 +112,31 @@ struct ProfileEditorSheet: View {
                                 HStack(spacing: 8) {
                                     Image(systemName: "calendar.badge.exclamationmark")
                                         .foregroundStyle(AppColors.error)
-                                    Text("Дата рождения обязательна")
+                                    Text("profile.birth_date.required")
                                         .font(.subheadline.weight(.semibold))
                                 }
                                 if hasBirthDate {
-                                    DatePicker("Дата рождения", selection: $birthDate, in: ...Date(), displayedComponents: .date)
+                                    DatePicker("profile.birth_date.title", selection: $birthDate, in: ...Date(), displayedComponents: .date)
                                         .datePickerStyle(.compact)
                                 } else {
-                                    Button("Указать дату рождения") { hasBirthDate = true }
+                                    Button("profile.birth_date.add") { hasBirthDate = true }
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(GoNowTheme.primary)
                                         .frame(minHeight: 44)
                                 }
-                                Text("Без неё нельзя создавать задания и подавать заявки.")
+                                Text("profile.birth_date.helper")
                                     .font(.footnote)
                                     .foregroundStyle(AppColors.textSecondary)
                             }
                         }
 
-                        ProfileInput(title: "Интересы", text: $interests, isFocused: $isInterestsFocused, capitalization: .sentences)
-                        Text("Через запятую: прогулки, кино, йога")
+                        ProfileInput(title: L10n.string("profile.interests.title"), text: $interests, isFocused: $isInterestsFocused, capitalization: .sentences)
+                        Text("profile.interests.helper")
                             .font(.footnote)
                             .foregroundStyle(AppColors.textSecondary)
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("О себе")
+                            Text("profile.bio.title")
                                 .font(.subheadline.weight(.medium))
                             TextEditor(text: $bio)
                                 .font(.body)
@@ -144,7 +144,7 @@ struct ProfileEditorSheet: View {
                                 .frame(minHeight: 118)
                                 .padding(10)
                                 .liquidGlassField(isInvalid: false, isFocused: false)
-                            Text("До 500 символов")
+                            Text("profile.bio.limit")
                                 .font(.footnote)
                                 .foregroundStyle(AppColors.textSecondary)
                         }
@@ -155,18 +155,18 @@ struct ProfileEditorSheet: View {
                                 .foregroundStyle(AppColors.error)
                         }
 
-                        Button(isSaving ? "Сохраняем…" : "Сохранить профиль") { save() }
+                        Button(isSaving ? L10n.string("common.saving") : L10n.string("profile.save")) { save() }
                             .buttonStyle(GradientPrimaryButtonStyle())
                             .disabled(isSaving)
                     }
                     .padding(24)
                 }
             }
-            .navigationTitle("Мой профиль")
+            .navigationTitle("profile.my_profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(isSaving ? "Сохраняем…" : "Сохранить") { save() }
+                    Button(isSaving ? L10n.string("common.saving") : L10n.string("common.save")) { save() }
                         .foregroundStyle(GoNowTheme.primary)
                         .disabled(isSaving)
                 }
@@ -188,11 +188,11 @@ struct ProfileEditorSheet: View {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard displayName.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else {
-            errorMessage = "Введите имя не короче двух символов"
+            errorMessage = L10n.string("validation.name.too_short")
             return
         }
         guard hasBirthDate else {
-            errorMessage = "Укажите дату рождения, чтобы участвовать в активностях"
+            errorMessage = L10n.string("validation.birth_date.required")
             return
         }
         isSaving = true

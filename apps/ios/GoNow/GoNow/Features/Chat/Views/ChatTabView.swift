@@ -5,13 +5,13 @@ struct ChatTabView: View {
         NavigationStack {
             GlassScreen {
                 VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                    Text("Чаты")
+                    Text("chat.title")
                         .font(AppTypography.screenTitle)
                         .foregroundStyle(AppColors.textPrimary)
                     AppEmptyState(
                         symbol: "bubble.left.and.bubble.right",
-                        title: "Пока здесь тихо",
-                        message: "Когда вы присоединитесь к активности, все сообщения будут собраны в этом месте."
+                        title: "chat.empty.title",
+                        message: "chat.empty.message"
                     )
                 }
             }

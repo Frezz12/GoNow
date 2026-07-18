@@ -27,9 +27,9 @@ final class ProfileLocationPicker: NSObject, ObservableObject, CLLocationManager
             isRequesting = true
             manager.requestLocation()
         case .denied, .restricted:
-            errorMessage = "Разрешите доступ к геопозиции в настройках iPhone."
+            errorMessage = L10n.string("location.permission.settings")
         @unknown default:
-            errorMessage = "Не удалось определить доступ к геопозиции."
+            errorMessage = L10n.string("location.permission.unknown")
         }
     }
 
@@ -40,12 +40,12 @@ final class ProfileLocationPicker: NSObject, ObservableObject, CLLocationManager
             manager.requestLocation()
         case .denied, .restricted:
             isRequesting = false
-            errorMessage = "Разрешите доступ к геопозиции в настройках iPhone."
+            errorMessage = L10n.string("location.permission.settings")
         case .notDetermined:
             break
         @unknown default:
             isRequesting = false
-            errorMessage = "Не удалось определить доступ к геопозиции."
+            errorMessage = L10n.string("location.permission.unknown")
         }
     }
 
@@ -58,12 +58,12 @@ final class ProfileLocationPicker: NSObject, ObservableObject, CLLocationManager
             let placemarks = try? await CLGeocoder().reverseGeocodeLocation(location)
             let placemark = placemarks?.first
             let pieces = [placemark?.locality, placemark?.administrativeArea].compactMap { $0 }
-            label = pieces.isEmpty ? "Текущее местоположение" : pieces.joined(separator: ", ")
+            label = pieces.isEmpty ? L10n.string("location.current") : pieces.joined(separator: ", ")
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         isRequesting = false
-        errorMessage = "Не удалось определить геопозицию. Попробуйте ещё раз."
+        errorMessage = L10n.string("location.resolve.error")
     }
 }

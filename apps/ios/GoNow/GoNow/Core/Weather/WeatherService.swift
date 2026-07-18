@@ -10,7 +10,7 @@ enum TemperatureUnit: String, CaseIterable, Codable, Identifiable {
 
     var title: String {
         switch self {
-        case .automatic: "Авто"
+        case .automatic: L10n.string("settings.temperature.automatic")
         case .celsius: "°C"
         case .fahrenheit: "°F"
         }
@@ -51,7 +51,8 @@ struct WeatherSnapshot: Equatable {
 
     var windText: String {
         guard let windSpeed else { return "—" }
-        return "\(Int(windSpeed.rounded())) км/ч"
+        return Measurement(value: windSpeed, unit: UnitSpeed.kilometersPerHour)
+            .formatted(.measurement(width: .abbreviated, usage: .wind))
     }
 }
 
@@ -100,14 +101,14 @@ enum WeatherCondition: Equatable {
 
     var title: String {
         switch self {
-        case .clear: "Солнечно"
-        case .partlyCloudy: "Облачно"
-        case .cloudy: "Пасмурно"
-        case .fog: "Туман"
-        case .drizzle: "Морось"
-        case .rain: "Дождь"
-        case .snow: "Снег"
-        case .thunderstorm: "Гроза"
+        case .clear: L10n.string("weather.condition.clear")
+        case .partlyCloudy: L10n.string("weather.condition.partly_cloudy")
+        case .cloudy: L10n.string("weather.condition.cloudy")
+        case .fog: L10n.string("weather.condition.fog")
+        case .drizzle: L10n.string("weather.condition.drizzle")
+        case .rain: L10n.string("weather.condition.rain")
+        case .snow: L10n.string("weather.condition.snow")
+        case .thunderstorm: L10n.string("weather.condition.thunderstorm")
         }
     }
 
@@ -132,9 +133,9 @@ final class WeatherViewModel: ObservableObject {
     @Published private(set) var isUnavailable = false
     @Published private(set) var unavailableReason: WeatherUnavailableReason?
 
-    private var lastRequest: (latitude: Double, longitude: Double, unit: TemperatureUnit, date: Date)?
+    private var lastRequest: (latitude: Double, longitude: Double, unit: TemperatureUnit, locale: String, date: Date)?
 
-    func refresh(latitude: Double?, longitude: Double?, unit: TemperatureUnit) async {
+    func refresh(latitude: Double?, longitude: Double?, unit: TemperatureUnit, locale: String) async {
         guard let latitude, let longitude else {
             snapshot = nil
             isUnavailable = true
@@ -146,6 +147,7 @@ final class WeatherViewModel: ObservableObject {
            abs(lastRequest.latitude - latitude) < 0.001,
            abs(lastRequest.longitude - longitude) < 0.001,
            lastRequest.unit == unit.effective,
+           lastRequest.locale == locale,
            Date().timeIntervalSince(lastRequest.date) < 600 {
             return
         }
@@ -156,8 +158,8 @@ final class WeatherViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            snapshot = try await WeatherService.fetch(latitude: latitude, longitude: longitude, unit: unit.effective)
-            lastRequest = (latitude, longitude, unit.effective, .now)
+            snapshot = try await WeatherService.fetch(latitude: latitude, longitude: longitude, unit: unit.effective, locale: locale)
+            lastRequest = (latitude, longitude, unit.effective, locale, .now)
         } catch {
             isUnavailable = true
             unavailableReason = WeatherUnavailableReason(error: error)
@@ -186,13 +188,13 @@ enum WeatherUnavailableReason: Equatable {
 }
 
 private enum WeatherService {
-    static func fetch(latitude: Double, longitude: Double, unit: TemperatureUnit) async throws -> WeatherSnapshot {
-        try await fetchViaGoNowBackend(latitude: latitude, longitude: longitude, unit: unit)
+    static func fetch(latitude: Double, longitude: Double, unit: TemperatureUnit, locale: String) async throws -> WeatherSnapshot {
+        try await fetchViaGoNowBackend(latitude: latitude, longitude: longitude, unit: unit, locale: locale)
     }
 
     /// Weather providers are intentionally accessed only by the GoNow backend.
     /// This keeps provider DNS and VPN behaviour outside of the mobile client.
-    private static func fetchViaGoNowBackend(latitude: Double, longitude: Double, unit: TemperatureUnit) async throws -> WeatherSnapshot {
+    private static func fetchViaGoNowBackend(latitude: Double, longitude: Double, unit: TemperatureUnit, locale: String) async throws -> WeatherSnapshot {
         var components = URLComponents(
             url: AppConfiguration.apiBaseURL.appendingPathComponent("weather/current"),
             resolvingAgainstBaseURL: false
@@ -200,7 +202,8 @@ private enum WeatherService {
         components?.queryItems = [
             URLQueryItem(name: "latitude", value: String(latitude)),
             URLQueryItem(name: "longitude", value: String(longitude)),
-            URLQueryItem(name: "unit", value: unit.apiValue)
+            URLQueryItem(name: "unit", value: unit.apiValue),
+            URLQueryItem(name: "locale", value: locale)
         ]
         guard let url = components?.url else { throw URLError(.badURL) }
 

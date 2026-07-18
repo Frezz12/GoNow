@@ -5,19 +5,19 @@ struct TasksTabView: View {
         NavigationStack {
             GlassScreen {
                 VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                    Text("Ближайшие планы")
+                    Text("tasks.title")
                         .font(AppTypography.screenTitle)
                         .foregroundStyle(AppColors.textPrimary)
                     TaskPreviewCard(
                         icon: "figure.walk",
-                        title: "Прогулка после работы",
-                        subtitle: "Сегодня · 19:00 · рядом с вами",
+                        title: L10n.string("tasks.preview.walk.title"),
+                        subtitle: L10n.string("tasks.preview.walk.subtitle"),
                         tint: AppColors.accentPrimary
                     )
                     TaskPreviewCard(
                         icon: "cup.and.saucer.fill",
-                        title: "Кофе и знакомство",
-                        subtitle: "Завтра · 12:30 · центр города",
+                        title: L10n.string("tasks.preview.coffee.title"),
+                        subtitle: L10n.string("tasks.preview.coffee.subtitle"),
                         tint: AppColors.locationAccent
                     )
                     GlassCard {
@@ -25,7 +25,7 @@ struct TasksTabView: View {
                             Image(systemName: "sparkles")
                                 .font(.title2)
                             .foregroundStyle(AppColors.accentSecondary)
-                            Text("Здесь появятся ваши заявки и активности, на которые можно откликнуться.")
+                            Text("tasks.empty.message")
                                 .font(.subheadline)
                                 .foregroundStyle(AppColors.textSecondary)
                         }

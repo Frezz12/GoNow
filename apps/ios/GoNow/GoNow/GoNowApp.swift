@@ -11,12 +11,15 @@ import SwiftUI
 struct GoNowApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var themeManager = ThemeManager()
+    @StateObject private var localizationManager = LocalizationManager()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(themeManager)
+                .environmentObject(localizationManager)
+                .environment(\.locale, localizationManager.locale)
                 .preferredColorScheme(themeManager.preferredColorScheme)
                 .tint(AppColors.accentPrimary)
                 .animation(AppAnimation.standard, value: themeManager.mode)

@@ -294,10 +294,10 @@ enum AppTab: Int, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .map: "Карта"
-        case .tasks: "Задания"
-        case .chat: "Чат"
-        case .profile: "Профиль"
+        case .map: L10n.string("tab.map")
+        case .tasks: L10n.string("tab.tasks")
+        case .chat: L10n.string("tab.chat")
+        case .profile: L10n.string("tab.profile")
         }
     }
 
@@ -339,7 +339,7 @@ struct MapPointMarker: View {
             .foregroundStyle(AppColors.textOnAccent, AppColors.accentPrimary)
             .appShadow(.floating)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Метка активности на карте")
+            .accessibilityLabel("map.marker.accessibility")
     }
 }
 
@@ -370,6 +370,6 @@ struct ErrorMessage: View {
         Label(text, systemImage: "exclamationmark.circle.fill")
             .font(AppTypography.caption)
             .foregroundStyle(AppColors.error)
-            .accessibilityLabel("Ошибка: \(text)")
+            .accessibilityLabel(L10n.format("common.error.accessibility %@", text))
     }
 }
