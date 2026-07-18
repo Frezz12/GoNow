@@ -50,7 +50,7 @@ struct ProfileTabView: View {
                                         .font(AppTypography.body)
                                         .foregroundStyle(AppColors.textSecondary)
                                         .lineLimit(1)
-                                        .accessibilityLabel("Местоположение: \(locationText)")
+                                        .accessibilityLabel(L10n.format("profile.location.accessibility %@", locationText))
                                 }
                             }
                             Spacer(minLength: 0)
@@ -61,7 +61,7 @@ struct ProfileTabView: View {
                             VStack(alignment: .leading, spacing: AppSpacing.xl) {
                                 VStack(alignment: .leading, spacing: AppSpacing.sm) {
                                     HStack {
-                                        Text("Фотографии")
+                                        Text("profile.photos.title")
                                             .font(AppTypography.sectionTitle)
                                         Spacer(minLength: 8)
                                         Button {
@@ -70,7 +70,7 @@ struct ProfileTabView: View {
                                             }
                                         } label: {
                                             Label(
-                                                isGalleryExpanded ? "Свернуть" : "Показать все",
+                                                isGalleryExpanded ? "profile.photos.collapse" : "profile.photos.show_all",
                                                 systemImage: isGalleryExpanded ? "chevron.up" : "chevron.right"
                                             )
                                             .labelStyle(.titleAndIcon)
@@ -79,7 +79,7 @@ struct ProfileTabView: View {
                                             .frame(minHeight: 44)
                                         }
                                         .buttonStyle(.plain)
-                                        .accessibilityLabel(isGalleryExpanded ? "Свернуть фотографии" : "Показать все фотографии")
+                                        .accessibilityLabel(isGalleryExpanded ? L10n.string("profile.photos.collapse.accessibility") : L10n.string("profile.photos.show_all.accessibility"))
                                     }
                                     ProfilePhotoGallery(isExpanded: $isGalleryExpanded)
                                 }
@@ -88,7 +88,7 @@ struct ProfileTabView: View {
 
                                 if let bio = user.bio?.nonEmpty {
                                     VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                                        Label("О себе", systemImage: "person.text.rectangle")
+                                        Label("profile.bio.title", systemImage: "person.text.rectangle")
                                             .font(AppTypography.captionStrong)
                                             .foregroundStyle(AppColors.accentPrimary)
                                         Text(bio)
@@ -99,7 +99,7 @@ struct ProfileTabView: View {
 
                                 if let interests = user.interests, !interests.isEmpty {
                                     VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                        Label("Интересы", systemImage: "tag")
+                                        Label("profile.interests.title", systemImage: "tag")
                                             .font(AppTypography.captionStrong)
                                             .foregroundStyle(AppColors.accentPrimary)
                                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], alignment: .leading, spacing: 8) {
@@ -118,18 +118,18 @@ struct ProfileTabView: View {
                         }
                     }
                 } else {
-                    ProgressView("Загружаем профиль")
+                    ProgressView("profile.loading")
                 }
             }
             .alert(
-                "Не удалось обновить профиль",
+                "profile.reload.error.title",
                 isPresented: Binding(
                     get: { appState.sessionError != nil },
                     set: { if !$0 { appState.dismissSessionError() } }
                 )
             ) {
-                Button("Повторить") { Task { await appState.reloadUser() } }
-                Button("Закрыть", role: .cancel) { appState.dismissSessionError() }
+                Button("common.retry") { Task { await appState.reloadUser() } }
+                Button("common.close", role: .cancel) { appState.dismissSessionError() }
             } message: {
                 Text(appState.sessionError ?? "")
             }
@@ -157,18 +157,18 @@ struct ProfileTabView: View {
     private var profileSettingsButton: some View {
         Menu {
             Button { isEditing = true } label: {
-                Label("Редактировать профиль", systemImage: "square.and.pencil")
+                Label("profile.edit", systemImage: "square.and.pencil")
             }
             Button { isSettingsPresented = true } label: {
-                Label("Настройки", systemImage: "gearshape")
+                Label("settings.title", systemImage: "gearshape")
             }
         } label: {
             Image(systemName: "gearshape")
                 .font(.body.weight(.semibold))
                 .frame(width: 44, height: 44)
         }
-        .accessibilityLabel("Меню профиля")
-        .accessibilityHint("Редактировать профиль или открыть настройки")
+        .accessibilityLabel("profile.menu")
+        .accessibilityHint("profile.menu.hint")
     }
 }
 
@@ -177,8 +177,8 @@ private struct ProfileDetailsGrid: View {
 
     var body: some View {
         let fields = [
-            DetailField(icon: "briefcase.fill", title: "Занятие", value: user.occupation?.nonEmpty),
-            DetailField(icon: "heart.text.square", title: "Семейный статус", value: user.relationshipStatus?.nonEmpty),
+            DetailField(icon: "briefcase.fill", title: L10n.string("profile.occupation.title"), value: user.occupation?.nonEmpty),
+            DetailField(icon: "heart.text.square", title: L10n.string("profile.relationship.title"), value: user.relationshipStatus?.nonEmpty),
         ].filter { $0.value != nil }
 
         if !fields.isEmpty {
@@ -232,7 +232,7 @@ struct ProfileCompletionNotice: View {
                         .background(AppColors.surfaceElevated.opacity(0.72), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Закрыть подсказку профиля")
+                .accessibilityLabel("profile.notice.close")
             }
         }
         .padding(AppSpacing.md)

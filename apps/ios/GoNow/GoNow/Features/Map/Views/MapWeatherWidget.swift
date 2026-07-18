@@ -4,11 +4,11 @@ import SwiftUI
 struct MapWeatherWidget: View {
     let profileLatitude: Double?
     let profileLongitude: Double?
-    let profileLocationLabel: String?
 
     @AppStorage("gonow.weather.temperature-unit") private var temperatureUnit: TemperatureUnit = .automatic
     @StateObject private var weather = WeatherViewModel()
     @StateObject private var deviceLocation = DeviceLocationProvider()
+    @EnvironmentObject private var localizationManager: LocalizationManager
     @State private var isExpanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -23,7 +23,7 @@ struct MapWeatherWidget: View {
             } else if weather.isLoading {
                 HStack(spacing: AppSpacing.sm) {
                     ProgressView().controlSize(.small)
-                    Text("Погода")
+                    Text("weather.title")
                         .font(AppTypography.captionStrong)
                 }
             } else {
@@ -40,7 +40,7 @@ struct MapWeatherWidget: View {
         .buttonStyle(AppPressButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint(weather.snapshot == nil ? "Ожидайте загрузки погоды" : (isExpanded ? "Скрыть подробности погоды" : "Показать подробности погоды"))
+        .accessibilityHint(weather.snapshot == nil ? L10n.string("weather.loading.hint") : (isExpanded ? L10n.string("weather.details.hide") : L10n.string("weather.details.show")))
         .task {
             deviceLocation.startMonitoringLocation()
         }
@@ -49,7 +49,8 @@ struct MapWeatherWidget: View {
             await weather.refresh(
                 latitude: weatherLatitude,
                 longitude: weatherLongitude,
-                unit: temperatureUnit
+                unit: temperatureUnit,
+                locale: localizationManager.selectedLanguage.requestLocaleIdentifier
             )
         }
     }
@@ -87,23 +88,23 @@ struct MapWeatherWidget: View {
                 HStack(spacing: AppSpacing.md) {
                     WeatherDetailMetric(
                         symbol: "thermometer.medium",
-                        title: "Ощущается",
+                        title: L10n.string("weather.apparent_temperature"),
                         value: snapshot.apparentTemperatureText(unitSuffix)
                     )
                     WeatherDetailMetric(
                         symbol: "humidity.fill",
-                        title: "Влажность",
+                        title: L10n.string("weather.humidity"),
                         value: snapshot.humidityText
                     )
                     WeatherDetailMetric(
                         symbol: "wind",
-                        title: "Ветер",
+                        title: L10n.string("weather.wind"),
                         value: snapshot.windText
                     )
                 }
 
                 if snapshot.city != nil {
-                    Text("Данные места © OpenStreetMap contributors")
+                    Text("weather.location.attribution")
                         .font(.caption2)
                         .foregroundStyle(AppColors.textMuted)
                 }
@@ -123,7 +124,7 @@ struct MapWeatherWidget: View {
     }
 
     private var requestID: String {
-        "\(weatherLatitude ?? 0)|\(weatherLongitude ?? 0)|\(temperatureUnit.rawValue)"
+        "\(weatherLatitude ?? 0)|\(weatherLongitude ?? 0)|\(temperatureUnit.rawValue)|\(localizationManager.selectedLanguage.requestLocaleIdentifier)"
     }
 
     /// The device coordinate is collected by Core Location and sent only to the GoNow API.
@@ -137,13 +138,9 @@ struct MapWeatherWidget: View {
     }
 
     private var cityName: String {
-        if deviceLocation.coordinate != nil {
-            if let locality = deviceLocation.locality {
-                return locality
-            }
-            return deviceLocation.isResolvingLocality ? "Определяем город…" : "Текущее местоположение"
-        }
-        return profileLocationLabel ?? "Текущее место"
+        deviceLocation.coordinate == nil
+            ? L10n.string("location.current.short")
+            : L10n.string("location.current")
     }
 
     private var unitSuffix: String {
@@ -152,11 +149,11 @@ struct MapWeatherWidget: View {
 
     private var placeholderTitle: String {
         if deviceLocation.isRequesting && profileLatitude == nil && profileLongitude == nil {
-            return "Определяем место"
+            return L10n.string("location.resolving")
         }
-        if weatherLatitude == nil || weatherLongitude == nil { return "Разрешите геолокацию" }
-        if weather.unavailableReason == .networkUnavailable { return "Нет подключения" }
-        return "Погода недоступна"
+        if weatherLatitude == nil || weatherLongitude == nil { return L10n.string("location.permission.required") }
+        if weather.unavailableReason == .networkUnavailable { return L10n.string("network.offline") }
+        return L10n.string("weather.unavailable")
     }
 
     private var placeholderSymbol: String {
@@ -168,17 +165,20 @@ struct MapWeatherWidget: View {
     private var accessibilityLabel: String {
         guard let snapshot = weather.snapshot else {
             if deviceLocation.isRequesting && profileLatitude == nil && profileLongitude == nil {
-                return "Определяем геопозицию для погоды."
+                return L10n.string("weather.location.resolving")
             }
             if weatherLatitude == nil || weatherLongitude == nil {
-                return "Разрешите доступ к геопозиции, чтобы показывать погоду."
+                return L10n.string("weather.location.permission")
             }
             if weather.unavailableReason == .networkUnavailable {
-                return "Нет подключения к сервису погоды. Проверьте интернет или настройки VPN."
+                return L10n.string("weather.network.error")
             }
-            return weather.isUnavailable ? "Погода недоступна." : "Загрузка погоды"
+            return weather.isUnavailable ? L10n.string("weather.unavailable") : L10n.string("weather.loading")
         }
-        return "Погода: \(snapshot.condition.title), \(snapshot.temperatureText) градусов \(snapshot.unit == .celsius ? "Цельсия" : "Фаренгейта")"
+        let unitText = snapshot.unit == .celsius
+            ? L10n.string("temperature.celsius")
+            : L10n.string("temperature.fahrenheit")
+        return L10n.string("weather.accessibility.summary \(snapshot.condition.title) \(snapshot.temperatureText) \(unitText)")
     }
 }
 

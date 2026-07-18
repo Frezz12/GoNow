@@ -6,15 +6,12 @@ import Foundation
 @MainActor
 final class DeviceLocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published private(set) var coordinate: CLLocationCoordinate2D?
-    @Published private(set) var locality: String?
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
     @Published private(set) var isRequesting = false
-    @Published private(set) var isResolvingLocality = false
     @Published private(set) var errorMessage: String?
 
     private let manager = CLLocationManager()
     private var monitorsLocationChanges = false
-    private var localityRequestID = UUID()
 
     override init() {
         authorizationStatus = manager.authorizationStatus
@@ -28,7 +25,6 @@ final class DeviceLocationProvider: NSObject, ObservableObject, CLLocationManage
         monitorsLocationChanges = false
         manager.stopUpdatingLocation()
         errorMessage = nil
-        locality = nil
 
         switch manager.authorizationStatus {
         case .notDetermined:
@@ -39,10 +35,10 @@ final class DeviceLocationProvider: NSObject, ObservableObject, CLLocationManage
             manager.requestLocation()
         case .denied, .restricted:
             isRequesting = false
-            errorMessage = "Разрешите доступ к геопозиции в настройках iPhone."
+            errorMessage = L10n.string("location.permission.settings")
         @unknown default:
             isRequesting = false
-            errorMessage = "Не удалось определить доступ к геопозиции."
+            errorMessage = L10n.string("location.permission.unknown")
         }
     }
 
@@ -51,7 +47,6 @@ final class DeviceLocationProvider: NSObject, ObservableObject, CLLocationManage
     func startMonitoringLocation() {
         monitorsLocationChanges = true
         errorMessage = nil
-        locality = nil
 
         switch manager.authorizationStatus {
         case .notDetermined:
@@ -62,10 +57,10 @@ final class DeviceLocationProvider: NSObject, ObservableObject, CLLocationManage
             manager.startUpdatingLocation()
         case .denied, .restricted:
             isRequesting = false
-            errorMessage = "Разрешите доступ к геопозиции в настройках iPhone."
+            errorMessage = L10n.string("location.permission.settings")
         @unknown default:
             isRequesting = false
-            errorMessage = "Не удалось определить доступ к геопозиции."
+            errorMessage = L10n.string("location.permission.unknown")
         }
     }
 
@@ -87,7 +82,7 @@ final class DeviceLocationProvider: NSObject, ObservableObject, CLLocationManage
             }
         } else if authorizationStatus == .denied || authorizationStatus == .restricted {
             isRequesting = false
-            errorMessage = "Разрешите доступ к геопозиции в настройках iPhone."
+            errorMessage = L10n.string("location.permission.settings")
         }
     }
 
@@ -95,21 +90,10 @@ final class DeviceLocationProvider: NSObject, ObservableObject, CLLocationManage
         guard let location = locations.last else { return }
         coordinate = location.coordinate
         isRequesting = false
-        isResolvingLocality = true
-        let requestID = UUID()
-        localityRequestID = requestID
-
-        Task {
-            let placemark = try? await CLGeocoder().reverseGeocodeLocation(location).first
-            guard localityRequestID == requestID else { return }
-            locality = placemark?.locality ?? placemark?.subAdministrativeArea ?? placemark?.administrativeArea
-            isResolvingLocality = false
-        }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         isRequesting = false
-        isResolvingLocality = false
-        errorMessage = "Не удалось определить геопозицию. Попробуйте ещё раз."
+        errorMessage = L10n.string("location.resolve.error")
     }
 }

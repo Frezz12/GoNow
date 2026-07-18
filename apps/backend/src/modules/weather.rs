@@ -21,6 +21,7 @@ use crate::{
 const OPEN_METEO_URL: &str = "https://api.open-meteo.com/v1/forecast";
 const NOMINATIM_REVERSE_URL: &str = "https://nominatim.openstreetmap.org/reverse";
 const GEOCODING_CACHE_TTL_SECONDS: u64 = 60 * 60 * 24;
+const GEOCODING_CACHE_VERSION: &str = "v2";
 
 /// The public Nominatim endpoint permits at most one request per second.
 /// Cached coordinate cells keep this development fallback well below that limit.
@@ -35,6 +36,8 @@ pub struct CurrentWeatherQuery {
     pub longitude: f64,
     /// `celsius` or `fahrenheit`.
     pub unit: String,
+    /// Supported interface locale. Unsupported values safely fall back to English.
+    pub locale: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -150,7 +153,8 @@ pub async fn current(
             AppError::service_unavailable()
         })?;
 
-    let city = resolve_city(&state, query.latitude, query.longitude).await;
+    let geocoding_language = normalize_geocoding_language(query.locale.as_deref());
+    let city = resolve_city(&state, query.latitude, query.longitude, geocoding_language).await;
 
     Ok(Json(ApiResponse::new(CurrentWeatherResponse {
         city,
@@ -164,9 +168,15 @@ pub async fn current(
     })))
 }
 
-async fn resolve_city(state: &AppState, latitude: f64, longitude: f64) -> Option<String> {
+async fn resolve_city(
+    state: &AppState,
+    latitude: f64,
+    longitude: f64,
+    language: &'static str,
+) -> Option<String> {
     // A 0.01° cell is about one kilometre and matches the client's location update threshold.
-    let cache_key = format!("weather:city:{latitude:.2}:{longitude:.2}");
+    // The language and version prevent cached city names from leaking across interface locales.
+    let cache_key = city_cache_key(latitude, longitude, language);
     let mut redis = state.redis.clone();
     if let Ok(Some(city)) = redis.get::<_, Option<String>>(&cache_key).await {
         return Some(city);
@@ -196,7 +206,7 @@ async fn resolve_city(state: &AppState, latitude: f64, longitude: f64) -> Option
             ("format", "jsonv2".to_owned()),
             ("addressdetails", "1".to_owned()),
         ])
-        .header("Accept-Language", "ru,en")
+        .header("Accept-Language", language)
         .header(
             "User-Agent",
             "GoNow/0.1 (+https://github.com/Frezz12/GoNow)",
@@ -228,4 +238,52 @@ async fn resolve_city(state: &AppState, latitude: f64, longitude: f64) -> Option
         warn!(%error, "city reverse geocoding cache write failed");
     }
     Some(city)
+}
+
+fn normalize_geocoding_language(locale: Option<&str>) -> &'static str {
+    let normalized = locale
+        .unwrap_or_default()
+        .trim()
+        .replace('_', "-")
+        .to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "ru" | "ru-ru" => "ru",
+        "de" | "de-de" | "de-at" | "de-ch" => "de",
+        "fr" | "fr-fr" | "fr-ca" | "fr-ch" => "fr",
+        "es" | "es-es" | "es-mx" => "es",
+        "pt" | "pt-br" => "pt-BR",
+        "zh" | "zh-cn" | "zh-hans" => "zh-Hans",
+        "en-us" => "en-US",
+        _ => "en",
+    }
+}
+
+fn city_cache_key(latitude: f64, longitude: f64, language: &str) -> String {
+    format!("weather:city:{language}:{GEOCODING_CACHE_VERSION}:{latitude:.2}:{longitude:.2}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn geocoding_language_is_limited_to_supported_interface_locales() {
+        assert_eq!(normalize_geocoding_language(Some("de-DE")), "de");
+        assert_eq!(normalize_geocoding_language(Some("pt_BR")), "pt-BR");
+        assert_eq!(normalize_geocoding_language(Some("zh-Hans")), "zh-Hans");
+        assert_eq!(
+            normalize_geocoding_language(Some("unknown\r\nheader")),
+            "en"
+        );
+        assert_eq!(normalize_geocoding_language(None), "en");
+    }
+
+    #[test]
+    fn city_cache_is_scoped_to_the_requested_language() {
+        assert_eq!(
+            city_cache_key(55.7558, 37.6173, "de"),
+            "weather:city:de:v2:55.76:37.62"
+        );
+    }
 }

@@ -9,11 +9,11 @@ enum APIError: LocalizedError, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .server(let error): return error.message
-        case .unauthorized: return "Сессия истекла. Войдите снова."
-        case .invalidResponse: return "Сервис вернул некорректный ответ."
-        case .transport: return "Не удалось подключиться к серверу. Проверьте соединение."
-        case .decoding: return "Не удалось обработать ответ сервера."
+        case .server(let error): return LocalizedBackendError.message(for: error.code)
+        case .unauthorized: return L10n.string("error.auth.unauthorized")
+        case .invalidResponse: return L10n.string("error.network.invalid_response")
+        case .transport: return L10n.string("error.network.transport")
+        case .decoding: return L10n.string("error.network.decoding")
         }
     }
 

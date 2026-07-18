@@ -27,7 +27,7 @@ struct ProfileAvatar: View {
         .frame(width: size, height: size)
         .overlay { Circle().strokeBorder(AppColors.glassBorder.opacity(0.76), lineWidth: 2) }
         .appShadow(.floating)
-        .accessibilityLabel("Аватар пользователя \(initials)")
+        .accessibilityLabel(L10n.format("profile.avatar.accessibility %@", initials))
     }
 }
 
@@ -80,8 +80,8 @@ struct AvatarPicker: View {
                 try? await appState.uploadAvatar(compressed)
             }
         }
-        .accessibilityLabel("Изменить фотографию профиля")
-        .accessibilityHint("Открыть медиатеку и выбрать фотографию")
+        .accessibilityLabel("profile.avatar.change")
+        .accessibilityHint("profile.media.open_library.hint")
     }
 }
 
@@ -149,7 +149,7 @@ struct ProfilePhotoGallery: View {
                 ProfileGalleryThumbnail(photo: photo)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Открыть личную фотографию")
+            .accessibilityLabel("profile.photo.open")
         }
     }
 
@@ -175,8 +175,8 @@ struct ProfilePhotoGallery: View {
             }
             .buttonStyle(.plain)
             .disabled(isUploading)
-            .accessibilityLabel("Добавить личную фотографию")
-            .accessibilityHint("Открыть медиатеку")
+            .accessibilityLabel("profile.photo.add")
+            .accessibilityHint("profile.media.open_library")
         }
     }
 }
@@ -232,13 +232,13 @@ struct ProfilePhotoViewer: View {
                 }
                 .frame(width: proxy.size.width - 24, height: proxy.size.height - 148)
                 .position(x: proxy.size.width / 2, y: proxy.size.height / 2 + 18)
-                .accessibilityLabel("Личная фотография")
+                .accessibilityLabel("profile.photo.personal")
             }
 
             HStack {
-                viewerButton(icon: "xmark", label: "Закрыть просмотр") { dismiss() }
+                viewerButton(icon: "xmark", label: L10n.string("profile.photo.viewer.close")) { dismiss() }
                 Spacer()
-                viewerButton(icon: isDeleting ? "hourglass" : "trash", label: "Удалить фотографию") {
+                viewerButton(icon: isDeleting ? "hourglass" : "trash", label: L10n.string("profile.photo.delete")) {
                     isDeleteConfirmationPresented = true
                 }
                 .foregroundStyle(AppColors.error)
@@ -248,8 +248,8 @@ struct ProfilePhotoViewer: View {
             .padding(.top, 12)
         }
         .task { imageData = await appState.profilePhotoData(photo) }
-        .alert("Удалить фотографию?", isPresented: $isDeleteConfirmationPresented) {
-            Button("Удалить", role: .destructive) {
+        .alert("profile.photo.delete.confirmation", isPresented: $isDeleteConfirmationPresented) {
+            Button("common.delete", role: .destructive) {
                 Task {
                     isDeleting = true
                     defer { isDeleting = false }
@@ -259,9 +259,9 @@ struct ProfilePhotoViewer: View {
                     } catch { }
                 }
             }
-            Button("Отмена", role: .cancel) {}
+            Button("common.cancel", role: .cancel) {}
         } message: {
-            Text("Это действие нельзя отменить.")
+            Text("common.irreversible")
         }
     }
 

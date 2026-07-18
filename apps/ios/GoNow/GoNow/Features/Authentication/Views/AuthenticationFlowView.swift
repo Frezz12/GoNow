@@ -32,12 +32,12 @@ private struct LoginView: View {
     var body: some View {
         AuthenticationScreen {
             VStack(alignment: .leading, spacing: AppSpacing.xl) {
-                brandHeader(title: "Рядом — интереснее", subtitle: "Войдите, чтобы находить людей для активностей рядом.")
+                brandHeader(title: L10n.string("auth.login.hero.title"), subtitle: L10n.string("auth.login.hero.subtitle"))
                 VStack(spacing: AppSpacing.md) {
-                    AuthTextField(title: "Email", text: $email, error: fieldErrors["email"], isFocused: $isEmailFocused, contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
-                    PasswordField(title: "Пароль", text: $password, isVisible: $isPasswordVisible, error: fieldErrors["password"], isFocused: $isPasswordFocused, contentType: .password)
+                    AuthTextField(title: L10n.string("auth.field.email"), text: $email, error: fieldErrors["email"], isFocused: $isEmailFocused, contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
+                    PasswordField(title: L10n.string("auth.field.password"), text: $password, isVisible: $isPasswordVisible, error: fieldErrors["password"], isFocused: $isPasswordFocused, contentType: .password)
                 }
-                Button("Забыли пароль?") { isPasswordRecoveryPresented = true }
+                Button("auth.forgot_password") { isPasswordRecoveryPresented = true }
                     .font(AppTypography.captionStrong)
                     .foregroundStyle(AppColors.accentPrimary)
                     .buttonStyle(.plain)
@@ -45,14 +45,14 @@ private struct LoginView: View {
                 if let errorMessage { ErrorMessage(text: errorMessage) }
                 Button(action: submit) {
                     if isLoading { ProgressView().tint(AppColors.textOnAccent).frame(maxWidth: .infinity) }
-                    else { Text("Войти").frame(maxWidth: .infinity) }
+                    else { Text("auth.sign_in").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(GradientPrimaryButtonStyle())
                 .disabled(isLoading)
-                .accessibilityHint("Выполнить вход с указанным email и паролем")
+                .accessibilityHint("auth.sign_in.hint")
                 HStack(spacing: 4) {
-                    Text("Впервые в GoNow?").foregroundStyle(AppColors.textSecondary)
-                    Button("Создать аккаунт", action: onShowRegister)
+                    Text("auth.first_time").foregroundStyle(AppColors.textSecondary)
+                    Button("auth.create_account", action: onShowRegister)
                         .font(AppTypography.captionStrong)
                         .foregroundStyle(AppColors.accentPrimary)
                         .buttonStyle(.plain)
@@ -99,26 +99,26 @@ private struct RegisterView: View {
     var body: some View {
         AuthenticationScreen {
             VStack(alignment: .leading, spacing: AppSpacing.md) {
-                brandHeader(title: "Ваши планы начинаются здесь", subtitle: "Создайте аккаунт — это займёт меньше минуты.")
+                brandHeader(title: L10n.string("auth.register.hero.title"), subtitle: L10n.string("auth.register.hero.subtitle"))
                 VStack(spacing: AppSpacing.md) {
-                    AuthTextField(title: "Ваше имя", text: $name, error: fieldErrors["displayName"], isFocused: $isNameFocused, contentType: .name, capitalization: .words)
-                    AuthTextField(title: "Email", text: $email, error: fieldErrors["email"], isFocused: $isEmailFocused, contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
-                    PasswordField(title: "Пароль", text: $password, isVisible: $isPasswordVisible, error: fieldErrors["password"], isFocused: $isPasswordFocused, contentType: .newPassword)
-                    PasswordField(title: "Повторите пароль", text: $confirmation, isVisible: $isPasswordVisible, error: fieldErrors["confirmation"], isFocused: $isConfirmationFocused, contentType: .newPassword)
+                    AuthTextField(title: L10n.string("auth.field.name"), text: $name, error: fieldErrors["displayName"], isFocused: $isNameFocused, contentType: .name, capitalization: .words)
+                    AuthTextField(title: L10n.string("auth.field.email"), text: $email, error: fieldErrors["email"], isFocused: $isEmailFocused, contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
+                    PasswordField(title: L10n.string("auth.field.password"), text: $password, isVisible: $isPasswordVisible, error: fieldErrors["password"], isFocused: $isPasswordFocused, contentType: .newPassword)
+                    PasswordField(title: L10n.string("auth.field.password_confirm"), text: $confirmation, isVisible: $isPasswordVisible, error: fieldErrors["confirmation"], isFocused: $isConfirmationFocused, contentType: .newPassword)
                 }
-                Text("Минимум 8 символов. Не используйте очевидный пароль.")
+                Text("auth.password.helper")
                     .font(AppTypography.caption)
                     .foregroundStyle(AppColors.textSecondary)
                 if let errorMessage { ErrorMessage(text: errorMessage) }
                 Button(action: submit) {
                     if isLoading { ProgressView().tint(AppColors.textOnAccent).frame(maxWidth: .infinity) }
-                    else { Text("Создать аккаунт").frame(maxWidth: .infinity) }
+                    else { Text("auth.create_account").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(GradientPrimaryButtonStyle())
                 .disabled(isLoading)
                 HStack(spacing: 4) {
-                    Text("Уже есть аккаунт?").foregroundStyle(AppColors.textSecondary)
-                    Button("Войти", action: onShowLogin)
+                    Text("auth.already_have_account").foregroundStyle(AppColors.textSecondary)
+                    Button("auth.sign_in", action: onShowLogin)
                         .font(AppTypography.captionStrong)
                         .foregroundStyle(AppColors.accentPrimary)
                         .buttonStyle(.plain)
@@ -133,7 +133,7 @@ private struct RegisterView: View {
 
     private func submit() {
         var errors: [String: String] = [:]
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 { errors["displayName"] = "Введите имя не короче 2 символов" }
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 { errors["displayName"] = L10n.string("validation.name.too_short") }
         if let error = AuthValidation.email(email) { errors["email"] = error }
         if let error = AuthValidation.password(password) { errors["password"] = error }
         if let error = AuthValidation.matchingPasswords(password, confirmation) { errors["confirmation"] = error }
@@ -196,10 +196,12 @@ private struct EmailVerificationSheet: View {
                 AuthBackdrop()
                 VStack(alignment: .leading, spacing: 20) {
                     MapPointMarker(size: 62).frame(maxWidth: .infinity)
-                    Text("Подтвердите email").font(.title.bold())
-                    Text("Мы отправили шестизначный код на \(email).")
+                    Text("auth.verify.title").font(.title.bold())
+                    Text("auth.verify.sent \(email)")
                     .foregroundStyle(AppColors.textSecondary)
-                    TextField("000000", text: $code)
+                    TextField(text: $code, prompt: Text(verbatim: "000000")) {
+                        Text(verbatim: "000000")
+                    }
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
                         .focused($isFocused)
@@ -207,16 +209,16 @@ private struct EmailVerificationSheet: View {
                         .font(.title2.monospacedDigit().weight(.semibold))
                         .padding(.horizontal, AppSpacing.md).frame(minHeight: 58)
                         .liquidGlassField(isInvalid: errorMessage != nil, isFocused: isFocused)
-                        .accessibilityLabel("Шестизначный код подтверждения")
+                        .accessibilityLabel("auth.verify.code.accessibility")
                     if let errorMessage { ErrorMessage(text: errorMessage) }
-                    Button(isLoading ? "Проверяем…" : "Подтвердить") { verify() }
+                    Button(isLoading ? L10n.string("auth.verifying") : L10n.string("auth.verify.action")) { verify() }
                         .buttonStyle(GradientPrimaryButtonStyle())
                         .disabled(isLoading || code.count != 6)
                     Spacer()
                 }
                 .padding(AppSpacing.xl)
             }
-            .navigationTitle("Подтверждение")
+            .navigationTitle("auth.verify.navigation_title")
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium])
@@ -258,18 +260,18 @@ private struct PasswordRecoverySheet: View {
                         MapPointMarker(size: 58)
                             .frame(maxWidth: .infinity)
                             .accessibilityHidden(true)
-                        Text(isCodeRequested ? "Установите новый пароль" : "Восстановление пароля")
+                        Text(isCodeRequested ? L10n.string("auth.reset.new_password.title") : L10n.string("auth.reset.title"))
                             .font(.title2.bold())
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Text(isCodeRequested
-                             ? "Введите код из письма и придумайте новый пароль."
-                             : "Введите email. Если аккаунт существует, мы отправим код для восстановления.")
+                             ? L10n.string("auth.reset.code.description")
+                             : L10n.string("auth.reset.email.description"))
                             .font(.subheadline)
                             .foregroundStyle(AppColors.textSecondary)
 
                         if isCodeRequested {
                             VStack(spacing: 16) {
-                                TextField("Код из письма", text: $code)
+                                TextField("auth.reset.code.placeholder", text: $code)
                                     .keyboardType(.numberPad)
                                     .textContentType(.oneTimeCode)
                                     .focused($isCodeFocused)
@@ -278,24 +280,24 @@ private struct PasswordRecoverySheet: View {
                                     .padding(.horizontal, AppSpacing.md)
                                     .frame(minHeight: 54)
                                     .liquidGlassField(isInvalid: false, isFocused: isCodeFocused)
-                                    .accessibilityLabel("Шестизначный код восстановления")
-                                PasswordField(title: "Новый пароль", text: $password, isVisible: $isPasswordVisible, error: nil, isFocused: $isPasswordFocused, contentType: .newPassword)
-                                PasswordField(title: "Повторите пароль", text: $confirmation, isVisible: $isPasswordVisible, error: nil, isFocused: $isConfirmationFocused, contentType: .newPassword)
+                                    .accessibilityLabel("auth.reset.code.accessibility")
+                                PasswordField(title: L10n.string("auth.field.new_password"), text: $password, isVisible: $isPasswordVisible, error: nil, isFocused: $isPasswordFocused, contentType: .newPassword)
+                                PasswordField(title: L10n.string("auth.field.password_confirm"), text: $confirmation, isVisible: $isPasswordVisible, error: nil, isFocused: $isConfirmationFocused, contentType: .newPassword)
                             }
                         } else {
-                            AuthTextField(title: "Email", text: $email, error: nil, isFocused: $isEmailFocused, contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
+                            AuthTextField(title: L10n.string("auth.field.email"), text: $email, error: nil, isFocused: $isEmailFocused, contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
                         }
 
                         if let errorMessage { ErrorMessage(text: errorMessage) }
 
-                        Button(isLoading ? "Подождите…" : (isCodeRequested ? "Изменить пароль" : "Получить код")) {
+                        Button(isLoading ? L10n.string("common.please_wait") : (isCodeRequested ? L10n.string("auth.reset.action") : L10n.string("auth.reset.request_code"))) {
                             isCodeRequested ? resetPassword() : requestCode()
                         }
                         .buttonStyle(GradientPrimaryButtonStyle())
                         .disabled(isLoading)
 
                         if isCodeRequested {
-                            Button("Отправить код ещё раз") { requestCode() }
+                            Button("auth.reset.resend_code") { requestCode() }
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(AppColors.accentPrimary)
                                 .buttonStyle(.plain)
@@ -306,11 +308,11 @@ private struct PasswordRecoverySheet: View {
                     .padding(AppSpacing.xl)
                 }
             }
-            .navigationTitle("Восстановление")
+            .navigationTitle("auth.reset.navigation_title")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Отмена") { dismiss() }
+                    Button("common.cancel") { dismiss() }
                         .foregroundStyle(AppColors.accentPrimary)
                 }
             }
@@ -339,7 +341,7 @@ private struct PasswordRecoverySheet: View {
 
     private func resetPassword() {
         guard code.count == 6 else {
-            errorMessage = "Введите шестизначный код из письма"
+            errorMessage = L10n.string("validation.code.six_digits")
             return
         }
         if let validationError = AuthValidation.password(password) {
@@ -434,7 +436,7 @@ private struct PasswordField: View {
                 .background(.thinMaterial, in: Circle())
                 .glassEffect(.regular, in: Circle())
                 .overlay { Circle().strokeBorder(AppColors.glassBorder.opacity(0.72), lineWidth: 1) }
-                    .accessibilityLabel(isVisible ? "Скрыть пароль" : "Показать пароль")
+                    .accessibilityLabel(isVisible ? L10n.string("auth.password.hide") : L10n.string("auth.password.show"))
             }
             .padding(.horizontal, AppSpacing.md).frame(minHeight: 54)
             .liquidGlassField(isInvalid: error != nil, isFocused: isFocused)
