@@ -173,8 +173,9 @@ fn validation_error(
     if !email.contains('@') || email.len() > 254 {
         fields.insert("email".into(), "Введите корректный email".into());
     }
-    if password.len() < password_min_length
-        || password.len() > 128
+    let password_length = password.chars().count();
+    if password_length < password_min_length
+        || password_length > 128
         || password.chars().any(char::is_control)
     {
         fields.insert(
@@ -182,21 +183,29 @@ fn validation_error(
             format!("Пароль должен содержать от {password_min_length} до 128 символов").into(),
         );
     }
-    if let Some(name) = display_name {
-        if name.trim().chars().count() < 2 || name.trim().chars().count() > 80 {
-            fields.insert(
-                "displayName".into(),
-                "Имя должно содержать от 2 до 80 символов".into(),
-            );
-        }
+    if let Some(name) = display_name
+        && (name.trim().chars().count() < 2 || name.trim().chars().count() > 80)
+    {
+        fields.insert(
+            "displayName".into(),
+            "Имя должно содержать от 2 до 80 символов".into(),
+        );
     }
-    if device.device_id.trim().is_empty() || device.device_id.len() > 128 {
+    append_device_validation_errors(&mut fields, device);
+    (!fields.is_empty()).then(|| AppError::validation(serde_json::Value::Object(fields)))
+}
+
+fn append_device_validation_errors(
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+    device: &DeviceRequest,
+) {
+    if device.device_id.trim().is_empty() || device.device_id.chars().count() > 128 {
         fields.insert(
             "device.deviceId".into(),
             "Некорректный идентификатор устройства".into(),
         );
     }
-    if device.device_name.trim().is_empty() || device.device_name.len() > 128 {
+    if device.device_name.trim().is_empty() || device.device_name.chars().count() > 128 {
         fields.insert(
             "device.deviceName".into(),
             "Некорректное имя устройства".into(),
@@ -205,7 +214,16 @@ fn validation_error(
     if device.platform != "ios" && device.platform != "android" && device.platform != "web" {
         fields.insert("device.platform".into(), "Некорректная платформа".into());
     }
+}
+
+fn device_validation_error(device: &DeviceRequest) -> Option<AppError> {
+    let mut fields = serde_json::Map::new();
+    append_device_validation_errors(&mut fields, device);
     (!fields.is_empty()).then(|| AppError::validation(serde_json::Value::Object(fields)))
+}
+
+fn email_code_is_well_formed(code: &str) -> bool {
+    code.len() == 6 && code.bytes().all(|value| value.is_ascii_digit())
 }
 
 async fn enforce_rate_limit(state: &AppState, key: String, maximum: i64) -> Result<(), AppError> {
@@ -236,9 +254,10 @@ fn client_ip(headers: &HeaderMap) -> String {
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.split(',').next())
-        .unwrap_or("local")
-        .trim()
-        .to_owned()
+        .or_else(|| headers.get("x-real-ip").and_then(|v| v.to_str().ok()))
+        .and_then(|value| value.trim().parse::<std::net::IpAddr>().ok())
+        .map(|address| address.to_string())
+        .unwrap_or_else(|| "unknown".into())
 }
 fn normalized_email(value: &str) -> String {
     value.trim().to_lowercase()
@@ -314,6 +333,7 @@ async fn send_resend_code(
         .post("https://api.resend.com/emails")
         .bearer_auth(key)
         .json(&body)
+        .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
         .map_err(|error| {
@@ -341,20 +361,14 @@ async fn consume_email_code(
     user_id: Uuid,
     purpose: &str,
     code: &str,
-) -> Result<(), AppError> {
+) -> Result<bool, AppError> {
     let row: Option<(Uuid, String, DateTime<Utc>, i32)> = sqlx::query_as("SELECT id, code_hash, expires_at, attempts FROM email_codes WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1 FOR UPDATE")
         .bind(user_id).bind(purpose).fetch_optional(&mut **tx).await.map_err(AppError::internal)?;
     let Some((id, hash, expires_at, attempts)) = row else {
-        return Err(AppError::unauthorized(
-            "INVALID_EMAIL_CODE",
-            "Код недействителен",
-        ));
+        return Ok(false);
     };
     if expires_at <= Utc::now() || attempts >= 5 {
-        return Err(AppError::unauthorized(
-            "INVALID_EMAIL_CODE",
-            "Код истёк или недействителен",
-        ));
+        return Ok(false);
     }
     if refresh_token_hash(code, &state.config.jwt_refresh_secret) != hash {
         sqlx::query("UPDATE email_codes SET attempts = attempts + 1 WHERE id = $1")
@@ -362,14 +376,14 @@ async fn consume_email_code(
             .execute(&mut **tx)
             .await
             .map_err(AppError::internal)?;
-        return Err(AppError::unauthorized("INVALID_EMAIL_CODE", "Неверный код"));
+        return Ok(false);
     }
     sqlx::query("UPDATE email_codes SET consumed_at = NOW() WHERE id = $1")
         .bind(id)
         .execute(&mut **tx)
         .await
         .map_err(AppError::internal)?;
-    Ok(())
+    Ok(true)
 }
 
 #[utoipa::path(post, path = "/api/v1/auth/register", tag = "authentication", request_body = RegisterRequest, responses((status = 201, body = RegistrationData), (status = 200, description = "A verification code was re-sent", body = RegistrationData), (status = 409, description = "Email is already verified"), (status = 422, description = "Validation failed")))]
@@ -409,6 +423,14 @@ pub async fn register(
                 fields: Some(serde_json::json!({"email":"Этот email уже используется"})),
             });
         }
+        let password_hash = hash_password(&request.password)?;
+        let user = sqlx::query_as::<_, UserRow>("UPDATE users SET password_hash = $2, display_name = $3, updated_at = NOW() WHERE id = $1 RETURNING id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at")
+            .bind(user.id)
+            .bind(password_hash)
+            .bind(request.display_name.trim())
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(AppError::internal)?;
         (user, StatusCode::OK)
     } else {
         let password_hash = hash_password(&request.password)?;
@@ -433,14 +455,36 @@ pub async fn register(
 #[utoipa::path(post, path = "/api/v1/auth/verify-email", tag = "authentication", request_body = VerifyEmailRequest, responses((status = 200, body = AuthData), (status = 401, description = "Invalid email code")))]
 pub async fn verify_email(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<VerifyEmailRequest>,
 ) -> Result<Json<ApiResponse<AuthData>>, AppError> {
     let email = normalized_email(&request.email);
+    if !email_code_is_well_formed(&request.code) {
+        return Err(AppError::unauthorized(
+            "INVALID_EMAIL_CODE",
+            "Код недействителен",
+        ));
+    }
+    if let Some(error) = device_validation_error(&request.device) {
+        return Err(error);
+    }
+    enforce_rate_limit(
+        &state,
+        format!("ratelimit:verify-email:{}:{}", client_ip(&headers), email),
+        state.config.rate_limit_login_max,
+    )
+    .await?;
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
     let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE").bind(&email).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
     let mut user =
         user.ok_or_else(|| AppError::unauthorized("INVALID_EMAIL_CODE", "Код недействителен"))?;
-    consume_email_code(&mut tx, &state, user.id, "verify_email", &request.code).await?;
+    if !consume_email_code(&mut tx, &state, user.id, "verify_email", &request.code).await? {
+        tx.commit().await.map_err(AppError::internal)?;
+        return Err(AppError::unauthorized(
+            "INVALID_EMAIL_CODE",
+            "Код истёк или недействителен",
+        ));
+    }
     sqlx::query("UPDATE users SET email_verified = TRUE WHERE id = $1")
         .bind(user.id)
         .execute(&mut *tx)
@@ -508,6 +552,12 @@ pub async fn reset_password(
     Json(request): Json<ResetPasswordRequest>,
 ) -> Result<Json<ApiResponse<AuthData>>, AppError> {
     let email = normalized_email(&request.email);
+    if !email_code_is_well_formed(&request.code) {
+        return Err(AppError::unauthorized(
+            "INVALID_RESET_CODE",
+            "Код недействителен",
+        ));
+    }
     if let Some(error) = validation_error(
         &email,
         &request.password,
@@ -540,7 +590,13 @@ pub async fn reset_password(
             "Код недействителен",
         ));
     }
-    consume_email_code(&mut tx, &state, user.id, "reset_password", &request.code).await?;
+    if !consume_email_code(&mut tx, &state, user.id, "reset_password", &request.code).await? {
+        tx.commit().await.map_err(AppError::internal)?;
+        return Err(AppError::unauthorized(
+            "INVALID_RESET_CODE",
+            "Код истёк или недействителен",
+        ));
+    }
 
     let password_hash = hash_password(&request.password)?;
     sqlx::query("UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1")
@@ -732,5 +788,29 @@ mod tests {
     #[test]
     fn email_normalization_removes_whitespace_and_case() {
         assert_eq!(normalized_email(" User@Example.COM "), "user@example.com");
+    }
+
+    #[test]
+    fn verification_code_requires_six_ascii_digits() {
+        assert!(email_code_is_well_formed("012345"));
+        assert!(!email_code_is_well_formed("12345"));
+        assert!(!email_code_is_well_formed("12345a"));
+        assert!(!email_code_is_well_formed("１２３４５６"));
+    }
+
+    #[test]
+    fn standalone_device_validation_rejects_unknown_platform() {
+        let invalid = DeviceRequest {
+            platform: "desktop".into(),
+            ..device()
+        };
+        let error = device_validation_error(&invalid).expect("validation error");
+        assert!(
+            error
+                .fields
+                .expect("field errors")
+                .get("device.platform")
+                .is_some()
+        );
     }
 }

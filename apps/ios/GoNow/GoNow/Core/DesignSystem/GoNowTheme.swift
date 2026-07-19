@@ -344,6 +344,7 @@ struct MapPointMarker: View {
 }
 
 private struct AppTextFieldSurfaceModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isInvalid: Bool
     let isFocused: Bool
 
@@ -359,7 +360,7 @@ private struct AppTextFieldSurfaceModifier: ViewModifier {
                 )
             }
             .shadow(color: isFocused ? AppColors.accentPrimary.opacity(0.20) : .clear, radius: 12, y: 4)
-            .animation(AppAnimation.fast, value: isFocused)
+            .animation(reduceMotion ? nil : AppAnimation.fast, value: isFocused)
     }
 }
 

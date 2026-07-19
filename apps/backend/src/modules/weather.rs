@@ -27,6 +27,12 @@ const GEOCODING_CACHE_VERSION: &str = "v2";
 /// Cached coordinate cells keep this development fallback well below that limit.
 static NEXT_GEOCODING_REQUEST: LazyLock<Mutex<Instant>> =
     LazyLock::new(|| Mutex::new(Instant::now() - Duration::from_secs(1)));
+static WEATHER_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(3))
+        .build()
+        .unwrap_or_default()
+});
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct CurrentWeatherQuery {
@@ -123,7 +129,7 @@ pub async fn current(
         })));
     }
 
-    let response = reqwest::Client::new()
+    let response = WEATHER_CLIENT
         .get(OPEN_METEO_URL)
         .query(&[
             ("latitude", query.latitude.to_string()),
@@ -198,7 +204,7 @@ async fn resolve_city(
         tokio::time::sleep(delay).await;
     }
 
-    let response = reqwest::Client::new()
+    let response = WEATHER_CLIENT
         .get(NOMINATIM_REVERSE_URL)
         .query(&[
             ("lat", latitude.to_string()),

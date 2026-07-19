@@ -1,0 +1,97 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "activity.create.category.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Kategorie" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Category" } },
+        "en-US" : { "stringUnit" : { "state" : "translated", "value" : "Category" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Categoría" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Catégorie" } },
+        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Categoria" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Категория" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "类别" } }
+      }
+    },
+    "activity.create.location.action" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Standort wählen" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use location" } },
+        "en-US" : { "stringUnit" : { "state" : "translated", "value" : "Use location" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Usar ubicación" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Utiliser la position" } },
+        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Usar localização" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Определить" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "使用位置" } }
+      }
+    },
+    "activity.create.location.denied" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Standortzugriff ist deaktiviert" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Location access is disabled" } },
+        "en-US" : { "stringUnit" : { "state" : "translated", "value" : "Location access is disabled" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "El acceso a la ubicación está desactivado" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "L’accès à la position est désactivé" } },
+        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "O acesso à localização está desativado" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Доступ к геопозиции выключен" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "位置权限已关闭" } }
+      }
+    },
+    "activity.create.location.label" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Ort der Aktivität" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Activity location" } },
+        "en-US" : { "stringUnit" : { "state" : "translated", "value" : "Activity location" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Ubicación de la actividad" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Lieu de l’activité" } },
+        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Local da atividade" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Место активности" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "活动地点" } }
+      }
+    },
+    "activity.create.location.loading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Standort wird bestimmt…" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Finding your location…" } },
+        "en-US" : { "stringUnit" : { "state" : "translated", "value" : "Finding your location…" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "Buscando tu ubicación…" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Localisation en cours…" } },
+        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "Buscando sua localização…" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Определяем геопозицию…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在获取位置…" } }
+      }
+    },
+    "activity.create.location.ready" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Aktueller Standort ist bereit" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Current location is ready" } },
+        "en-US" : { "stringUnit" : { "state" : "translated", "value" : "Current location is ready" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "La ubicación actual está lista" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "La position actuelle est prête" } },
+        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "A localização atual está pronta" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Текущая геопозиция получена" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已获取当前位置" } }
+      }
+    },
+    "activity.create.location.required" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "translated", "value" : "Standort ist zum Erstellen erforderlich" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Location is required to create an activity" } },
+        "en-US" : { "stringUnit" : { "state" : "translated", "value" : "Location is required to create an activity" } },
+        "es" : { "stringUnit" : { "state" : "translated", "value" : "La ubicación es necesaria para crear una actividad" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "La position est requise pour créer une activité" } },
+        "pt-BR" : { "stringUnit" : { "state" : "translated", "value" : "A localização é necessária para criar uma atividade" } },
+        "ru" : { "stringUnit" : { "state" : "translated", "value" : "Для создания нужна геопозиция" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "创建活动需要位置信息" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

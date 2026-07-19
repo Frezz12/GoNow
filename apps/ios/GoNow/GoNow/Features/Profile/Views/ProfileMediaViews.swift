@@ -33,6 +33,7 @@ struct ProfileAvatar: View {
 
 struct AvatarPicker: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let initials: String
     let size: CGFloat
     @State private var selectedPhoto: PhotosPickerItem?
@@ -51,8 +52,13 @@ struct AvatarPicker: View {
                     .background(AppColors.accentPrimary, in: Circle())
                     .overlay { Circle().strokeBorder(AppColors.glassBorder.opacity(0.82), lineWidth: 2) }
                     .offset(x: 2, y: 2)
-                    .rotationEffect(.degrees(isUploading ? 360 : 0))
-                    .animation(isUploading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isUploading)
+                    .rotationEffect(.degrees(isUploading && !reduceMotion ? 360 : 0))
+                    .animation(
+                        isUploading && !reduceMotion
+                            ? .linear(duration: 1).repeatForever(autoreverses: false)
+                            : nil,
+                        value: isUploading
+                    )
             }
             .overlay {
                 if isHovering {

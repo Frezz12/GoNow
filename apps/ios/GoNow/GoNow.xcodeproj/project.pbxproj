@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B1000001300A000100000001 /* MapLibre in Frameworks */ = {isa = PBXBuildFile; productRef = B1000007300A000100000001 /* MapLibre */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		A120000930090A02003830BB /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -39,6 +43,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B1000001300A000100000001 /* MapLibre in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +95,7 @@
 			);
 			name = GoNow;
 			packageProductDependencies = (
+				B1000007300A000100000001 /* MapLibre */,
 			);
 			productName = GoNow;
 			productReference = 952ED26C30090A02003830BB /* GoNow.app */;
@@ -149,6 +155,9 @@
 			);
 			mainGroup = 952ED26330090A01003830BB;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B1000006300A000100000001 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 952ED26D30090A02003830BB /* Products */;
 			projectDirPath = "";
@@ -446,6 +455,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B1000006300A000100000001 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/maplibre/maplibre-gl-native-distribution";
+			requirement = {
+				kind = exactVersion;
+				version = 6.26.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B1000007300A000100000001 /* MapLibre */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B1000006300A000100000001 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */;
+			productName = MapLibre;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 952ED26430090A02003830BB /* Project object */;
 }

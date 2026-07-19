@@ -4,10 +4,10 @@ import SwiftUI
 struct MapWeatherWidget: View {
     let profileLatitude: Double?
     let profileLongitude: Double?
+    @ObservedObject var deviceLocation: DeviceLocationProvider
 
     @AppStorage("gonow.weather.temperature-unit") private var temperatureUnit: TemperatureUnit = .automatic
     @StateObject private var weather = WeatherViewModel()
-    @StateObject private var deviceLocation = DeviceLocationProvider()
     @EnvironmentObject private var localizationManager: LocalizationManager
     @State private var isExpanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -41,10 +41,6 @@ struct MapWeatherWidget: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(weather.snapshot == nil ? L10n.string("weather.loading.hint") : (isExpanded ? L10n.string("weather.details.hide") : L10n.string("weather.details.show")))
-        .task {
-            deviceLocation.startMonitoringLocation()
-        }
-        .onDisappear { deviceLocation.stopMonitoringLocation() }
         .task(id: requestID) {
             await weather.refresh(
                 latitude: weatherLatitude,

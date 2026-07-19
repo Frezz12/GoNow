@@ -18,9 +18,10 @@ use crate::{
     shared::{errors::AppError, response::ApiResponse},
 };
 
-use super::users::authenticated_user_id;
+use super::users::active_user_id;
 
 pub const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_MULTIPART_BODY_BYTES: usize = MAX_IMAGE_BYTES + 64 * 1024;
 const MAX_GALLERY_PHOTOS: i64 = 12;
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -77,28 +78,6 @@ fn storage(state: &AppState) -> Result<S3ObjectStorage, AppError> {
     })
 }
 
-async fn active_user_id(headers: &HeaderMap, state: &AppState) -> Result<Uuid, AppError> {
-    let user_id = authenticated_user_id(headers, state)?;
-    let status: Option<String> = sqlx::query_scalar("SELECT status FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(AppError::internal)?;
-    match status.as_deref() {
-        Some("active") => Ok(user_id),
-        Some(_) => Err(AppError {
-            status: StatusCode::FORBIDDEN,
-            code: "USER_DISABLED",
-            message: "Учётная запись недоступна".into(),
-            fields: None,
-        }),
-        None => Err(AppError::unauthorized(
-            "UNAUTHORIZED",
-            "Пользователь не найден",
-        )),
-    }
-}
-
 fn upload_validation(message: &str) -> AppError {
     AppError::validation(serde_json::json!({ "file": message }))
 }
@@ -148,6 +127,89 @@ fn detect_image_type(data: &[u8]) -> Option<(&'static str, &'static str)> {
     }
 }
 
+async fn persist_photo_row(
+    state: &AppState,
+    user_id: Uuid,
+    photo_id: Uuid,
+    object_key: &str,
+    content_type: &str,
+    bytes: i32,
+    is_avatar: bool,
+) -> Result<(ProfilePhotoRow, Option<String>), AppError> {
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
+    let user_exists: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE id = $1 AND status = 'active' FOR UPDATE")
+            .bind(user_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(AppError::internal)?;
+    if user_exists.is_none() {
+        return Err(AppError::unauthorized(
+            "UNAUTHORIZED",
+            "Пользователь не найден",
+        ));
+    }
+
+    if !is_avatar {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM user_photos WHERE user_id = $1 AND is_avatar = FALSE",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(AppError::internal)?;
+        if count >= MAX_GALLERY_PHOTOS {
+            return Err(AppError {
+                status: StatusCode::CONFLICT,
+                code: "PHOTO_LIMIT_REACHED",
+                message: "Можно добавить не более 12 личных фотографий".into(),
+                fields: None,
+            });
+        }
+    }
+
+    let previous_avatar_key = if is_avatar {
+        sqlx::query_scalar::<_, String>(
+            "SELECT object_key FROM user_photos WHERE user_id = $1 AND is_avatar = TRUE",
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(AppError::internal)?
+    } else {
+        None
+    };
+
+    let photo: ProfilePhotoRow = if is_avatar {
+        sqlx::query_as(
+            "INSERT INTO user_photos (id, user_id, object_key, content_type, bytes, is_avatar) VALUES ($1, $2, $3, $4, $5, TRUE) ON CONFLICT (user_id) WHERE is_avatar DO UPDATE SET id = EXCLUDED.id, object_key = EXCLUDED.object_key, content_type = EXCLUDED.content_type, bytes = EXCLUDED.bytes, created_at = NOW() RETURNING id, object_key, content_type, bytes, is_avatar, created_at",
+        )
+        .bind(photo_id)
+        .bind(user_id)
+        .bind(object_key)
+        .bind(content_type)
+        .bind(bytes)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(AppError::internal)?
+    } else {
+        sqlx::query_as(
+            "INSERT INTO user_photos (id, user_id, object_key, content_type, bytes, is_avatar) VALUES ($1, $2, $3, $4, $5, FALSE) RETURNING id, object_key, content_type, bytes, is_avatar, created_at",
+        )
+        .bind(photo_id)
+        .bind(user_id)
+        .bind(object_key)
+        .bind(content_type)
+        .bind(bytes)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(AppError::internal)?
+    };
+
+    tx.commit().await.map_err(AppError::internal)?;
+    Ok((photo, previous_avatar_key))
+}
+
 async fn persist_photo(
     state: &AppState,
     user_id: Uuid,
@@ -185,45 +247,18 @@ async fn persist_photo(
             AppError::service_unavailable()
         })?;
 
-    let previous_avatar_key = if is_avatar {
-        sqlx::query_scalar::<_, String>(
-            "SELECT object_key FROM user_photos WHERE user_id = $1 AND is_avatar = TRUE",
-        )
-        .bind(user_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(AppError::internal)?
-    } else {
-        None
-    };
-
-    let result: Result<ProfilePhotoRow, AppError> = if is_avatar {
-        sqlx::query_as(
-            "INSERT INTO user_photos (id, user_id, object_key, content_type, bytes, is_avatar) VALUES ($1, $2, $3, $4, $5, TRUE) ON CONFLICT (user_id) WHERE is_avatar DO UPDATE SET id = EXCLUDED.id, object_key = EXCLUDED.object_key, content_type = EXCLUDED.content_type, bytes = EXCLUDED.bytes, created_at = NOW() RETURNING id, object_key, content_type, bytes, is_avatar, created_at",
-        )
-        .bind(photo_id)
-        .bind(user_id)
-        .bind(&object_key)
-        .bind(image.content_type)
-        .bind(bytes)
-        .fetch_one(&state.db)
-        .await
-        .map_err(AppError::internal)
-    } else {
-        sqlx::query_as(
-            "INSERT INTO user_photos (id, user_id, object_key, content_type, bytes, is_avatar) VALUES ($1, $2, $3, $4, $5, FALSE) RETURNING id, object_key, content_type, bytes, is_avatar, created_at",
-        )
-        .bind(photo_id)
-        .bind(user_id)
-        .bind(&object_key)
-        .bind(image.content_type)
-        .bind(bytes)
-        .fetch_one(&state.db)
-        .await
-        .map_err(AppError::internal)
-    };
-    let photo = match result {
-        Ok(photo) => photo,
+    let (photo, previous_avatar_key) = match persist_photo_row(
+        state,
+        user_id,
+        photo_id,
+        &object_key,
+        image.content_type,
+        bytes,
+        is_avatar,
+    )
+    .await
+    {
+        Ok(result) => result,
         Err(error) => {
             if let Err(cleanup_error) = storage.delete(&object_key).await {
                 warn!(error = %cleanup_error, object_key = %object_key, "failed to clean up unreferenced profile image");

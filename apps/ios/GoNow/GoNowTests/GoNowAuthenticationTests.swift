@@ -36,6 +36,18 @@ final class GoNowAuthenticationTests: XCTestCase {
         try store.delete()
         XCTAssertNil(try store.read())
     }
+
+    func testOnlyAuthenticationFailuresInvalidateTheSession() {
+        XCTAssertTrue(APIError.unauthorized.invalidatesSession)
+        XCTAssertTrue(APIError.server(APIErrorBody(
+            code: "SESSION_REVOKED",
+            message: "",
+            fields: nil,
+            requestId: "request"
+        )).invalidatesSession)
+        XCTAssertFalse(APIError.transport("offline").invalidatesSession)
+        XCTAssertFalse(APIError.invalidResponse.invalidatesSession)
+    }
 }
 
 private final class InMemoryTokenStore: TokenStore, @unchecked Sendable {

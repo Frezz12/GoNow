@@ -1,5 +1,7 @@
 use std::env;
 
+use axum::http::HeaderValue;
+
 #[derive(Clone)]
 pub struct Config {
     pub app_env: String,
@@ -12,7 +14,7 @@ pub struct Config {
     pub jwt_access_ttl_seconds: i64,
     pub jwt_refresh_ttl_seconds: i64,
     pub password_min_length: usize,
-    pub cors_allowed_origins: Vec<String>,
+    pub cors_allowed_origins: Vec<HeaderValue>,
     pub rate_limit_register_max: i64,
     pub rate_limit_login_max: i64,
     pub rate_limit_refresh_max: i64,
@@ -38,6 +40,7 @@ pub struct ObjectStorageConfig {
 
 impl Config {
     pub fn from_environment() -> Result<Self, String> {
+        const MAX_DURATION_SECONDS: i64 = 10 * 365 * 24 * 60 * 60;
         let required = |key: &str| {
             env::var(key).map_err(|_| format!("missing required environment variable {key}"))
         };
@@ -48,6 +51,52 @@ impl Config {
                 .parse()
                 .map_err(|_| format!("{key} must be a number"))
         };
+        let parse_positive = |key: &str, fallback: &str| -> Result<i64, String> {
+            let value = parse(key, fallback)?;
+            if value <= 0 {
+                return Err(format!("{key} must be greater than zero"));
+            }
+            Ok(value)
+        };
+
+        let jwt_access_secret = required("JWT_ACCESS_SECRET")?;
+        let jwt_refresh_secret = required("JWT_REFRESH_SECRET")?;
+        if jwt_access_secret.len() < 32 || jwt_refresh_secret.len() < 32 {
+            return Err("JWT secrets must contain at least 32 bytes".into());
+        }
+        if jwt_access_secret == jwt_refresh_secret {
+            return Err("JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different".into());
+        }
+
+        let jwt_access_ttl_seconds = parse_positive("JWT_ACCESS_TTL_SECONDS", "900")?;
+        let jwt_refresh_ttl_seconds = parse_positive("JWT_REFRESH_TTL_SECONDS", "2592000")?;
+        let email_code_ttl_seconds = parse_positive("EMAIL_CODE_TTL_SECONDS", "600")?;
+        if [
+            jwt_access_ttl_seconds,
+            jwt_refresh_ttl_seconds,
+            email_code_ttl_seconds,
+        ]
+        .into_iter()
+        .any(|value| value > MAX_DURATION_SECONDS)
+        {
+            return Err("token and email-code lifetimes must not exceed 10 years".into());
+        }
+
+        let password_min_length = parse_positive("PASSWORD_MIN_LENGTH", "8")?;
+        if !(8..=128).contains(&password_min_length) {
+            return Err("PASSWORD_MIN_LENGTH must be between 8 and 128".into());
+        }
+
+        let cors_allowed_origins = optional("CORS_ALLOWED_ORIGINS", "")
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|origin| {
+                origin
+                    .parse::<HeaderValue>()
+                    .map_err(|_| format!("invalid CORS origin: {origin}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let object_storage = ObjectStorageConfig::from_environment()?;
         Ok(Self {
             app_env: optional("APP_ENV", "development"),
@@ -57,27 +106,23 @@ impl Config {
                 .map_err(|_| "APP_PORT must be a number".to_string())?,
             database_url: required("DATABASE_URL")?,
             redis_url: required("REDIS_URL")?,
-            jwt_access_secret: required("JWT_ACCESS_SECRET")?,
-            jwt_refresh_secret: required("JWT_REFRESH_SECRET")?,
-            jwt_access_ttl_seconds: parse("JWT_ACCESS_TTL_SECONDS", "900")?,
-            jwt_refresh_ttl_seconds: parse("JWT_REFRESH_TTL_SECONDS", "2592000")?,
-            password_min_length: parse("PASSWORD_MIN_LENGTH", "8")? as usize,
-            cors_allowed_origins: optional("CORS_ALLOWED_ORIGINS", "")
-                .split(',')
-                .filter(|v| !v.is_empty())
-                .map(str::to_owned)
-                .collect(),
-            rate_limit_register_max: parse("RATE_LIMIT_REGISTER_MAX", "5")?,
-            rate_limit_login_max: parse("RATE_LIMIT_LOGIN_MAX", "10")?,
-            rate_limit_refresh_max: parse("RATE_LIMIT_REFRESH_MAX", "30")?,
-            rate_limit_window_seconds: parse("RATE_LIMIT_WINDOW_SECONDS", "900")?,
+            jwt_access_secret,
+            jwt_refresh_secret,
+            jwt_access_ttl_seconds,
+            jwt_refresh_ttl_seconds,
+            password_min_length: password_min_length as usize,
+            cors_allowed_origins,
+            rate_limit_register_max: parse_positive("RATE_LIMIT_REGISTER_MAX", "5")?,
+            rate_limit_login_max: parse_positive("RATE_LIMIT_LOGIN_MAX", "10")?,
+            rate_limit_refresh_max: parse_positive("RATE_LIMIT_REFRESH_MAX", "30")?,
+            rate_limit_window_seconds: parse_positive("RATE_LIMIT_WINDOW_SECONDS", "900")?,
             resend_api_key: env::var("RESEND_API_KEY")
                 .ok()
                 .filter(|value| !value.is_empty()),
             resend_from_email: env::var("RESEND_FROM_EMAIL")
                 .ok()
                 .filter(|value| !value.is_empty()),
-            email_code_ttl_seconds: parse("EMAIL_CODE_TTL_SECONDS", "600")?,
+            email_code_ttl_seconds,
             object_storage,
         })
     }

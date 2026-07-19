@@ -287,6 +287,31 @@ pub(crate) fn authenticated_user_id(
     verify_access_token(token, &state.config.jwt_access_secret)
 }
 
+pub(crate) async fn active_user_id(
+    headers: &HeaderMap,
+    state: &AppState,
+) -> Result<Uuid, AppError> {
+    let user_id = authenticated_user_id(headers, state)?;
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(AppError::internal)?;
+    match status.as_deref() {
+        Some("active") => Ok(user_id),
+        Some(_) => Err(AppError {
+            status: StatusCode::FORBIDDEN,
+            code: "USER_DISABLED",
+            message: "Учётная запись недоступна".into(),
+            fields: None,
+        }),
+        None => Err(AppError::unauthorized(
+            "UNAUTHORIZED",
+            "Пользователь не найден",
+        )),
+    }
+}
+
 #[utoipa::path(
     get, path = "/api/v1/users/me", tag = "users", security(("bearer_auth" = [])),
     responses((status = 200, body = UserResponse), (status = 401, description = "Access token is invalid or expired"))
@@ -323,14 +348,14 @@ pub async fn update_me(
     if let Some(error) = profile_validation_error(&request) {
         return Err(error);
     }
-    let user_id = authenticated_user_id(&headers, &state)?;
+    let user_id = active_user_id(&headers, &state).await?;
     let interests = request
         .interests
         .iter()
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .collect::<Vec<_>>();
-    let user: Option<UserRow> = sqlx::query_as("UPDATE users SET display_name = $2, birth_date = $3, city = $4, occupation = $5, bio = $6, interests = $7, relationship_status = $8, location_label = $9, latitude = $10, longitude = $11, show_distance = $12, updated_at = NOW() WHERE id = $1 RETURNING id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at")
+    let user: Option<UserRow> = sqlx::query_as("UPDATE users SET display_name = $2, birth_date = $3, city = $4, occupation = $5, bio = $6, interests = $7, relationship_status = $8, location_label = $9, latitude = $10, longitude = $11, show_distance = $12, updated_at = NOW() WHERE id = $1 AND status = 'active' RETURNING id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at")
         .bind(user_id)
         .bind(request.display_name.trim())
         .bind(request.birth_date)
@@ -348,14 +373,6 @@ pub async fn update_me(
         .map_err(AppError::internal)?;
     let user =
         user.ok_or_else(|| AppError::unauthorized("UNAUTHORIZED", "Пользователь не найден"))?;
-    if user.status != "active" {
-        return Err(AppError {
-            status: StatusCode::FORBIDDEN,
-            code: "USER_DISABLED",
-            message: "Учётная запись недоступна".into(),
-            fields: None,
-        });
-    }
     Ok(Json(ApiResponse::new(UserResponse::from(user))))
 }
 
@@ -369,7 +386,7 @@ pub async fn public_profile(
     headers: HeaderMap,
     axum::extract::Path(user_id): axum::extract::Path<Uuid>,
 ) -> Result<Json<ApiResponse<PublicProfileResponse>>, AppError> {
-    let viewer_id = authenticated_user_id(&headers, &state)?;
+    let viewer_id = active_user_id(&headers, &state).await?;
     let viewer_location: Option<(Option<f64>, Option<f64>)> =
         sqlx::query_as("SELECT latitude, longitude FROM users WHERE id = $1 AND status = 'active'")
             .bind(viewer_id)

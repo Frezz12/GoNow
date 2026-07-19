@@ -134,8 +134,11 @@ final class WeatherViewModel: ObservableObject {
     @Published private(set) var unavailableReason: WeatherUnavailableReason?
 
     private var lastRequest: (latitude: Double, longitude: Double, unit: TemperatureUnit, locale: String, date: Date)?
+    private var requestGeneration = 0
 
     func refresh(latitude: Double?, longitude: Double?, unit: TemperatureUnit, locale: String) async {
+        requestGeneration += 1
+        let generation = requestGeneration
         guard let latitude, let longitude else {
             snapshot = nil
             isUnavailable = true
@@ -155,12 +158,19 @@ final class WeatherViewModel: ObservableObject {
         isLoading = true
         isUnavailable = false
         unavailableReason = nil
-        defer { isLoading = false }
+        defer {
+            if generation == requestGeneration { isLoading = false }
+        }
 
         do {
-            snapshot = try await WeatherService.fetch(latitude: latitude, longitude: longitude, unit: unit.effective, locale: locale)
+            let nextSnapshot = try await WeatherService.fetch(latitude: latitude, longitude: longitude, unit: unit.effective, locale: locale)
+            guard !Task.isCancelled, generation == requestGeneration else { return }
+            snapshot = nextSnapshot
             lastRequest = (latitude, longitude, unit.effective, locale, .now)
         } catch {
+            guard !Task.isCancelled,
+                  (error as? URLError)?.code != .cancelled,
+                  generation == requestGeneration else { return }
             isUnavailable = true
             unavailableReason = WeatherUnavailableReason(error: error)
         }

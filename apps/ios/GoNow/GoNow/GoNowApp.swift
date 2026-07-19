@@ -22,7 +22,6 @@ struct GoNowApp: App {
                 .environment(\.locale, localizationManager.locale)
                 .preferredColorScheme(themeManager.preferredColorScheme)
                 .tint(AppColors.accentPrimary)
-                .animation(AppAnimation.standard, value: themeManager.mode)
         }
     }
 }

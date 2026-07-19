@@ -20,10 +20,16 @@ final class AppState: ObservableObject {
 
     private let repository: AuthRepository
     private let profileMediaRepository: ProfileMediaRepository
+    let activityMapRepository: any MapActivityRepository
 
-    init(repository: AuthRepository, profileMediaRepository: ProfileMediaRepository) {
+    init(
+        repository: AuthRepository,
+        profileMediaRepository: ProfileMediaRepository,
+        activityMapRepository: any MapActivityRepository = MockMapActivityRepository()
+    ) {
         self.repository = repository
         self.profileMediaRepository = profileMediaRepository
+        self.activityMapRepository = activityMapRepository
     }
 
     convenience init() {
@@ -31,7 +37,11 @@ final class AppState: ObservableObject {
         let api = APIClient(baseURL: AppConfiguration.apiBaseURL, tokenStore: keychain)
         self.init(
             repository: AuthRepository(api: api, tokenStore: keychain, deviceProvider: DeviceIdentityProvider(keychain: keychain)),
-            profileMediaRepository: ProfileMediaRepository(api: api)
+            profileMediaRepository: ProfileMediaRepository(api: api),
+            activityMapRepository: CachedMapActivityRepository(
+                upstream: MapActivityService(apiClient: api),
+                cache: MapActivityPageCache()
+            )
         )
     }
 
@@ -52,13 +62,27 @@ final class AppState: ObservableObject {
     }
 
     func restoreSession() async {
-        defer { if phase == .launching { phase = currentUser == nil ? .unauthenticated : .authenticated } }
+        sessionError = nil
         do {
             currentUser = try await repository.restore()
             isOptionalProfileNoticeDismissed = false
             restoreProfileSetupState()
             phase = currentUser == nil ? .unauthenticated : .authenticated
             if currentUser != nil { await reloadProfileMedia() }
+        } catch is CancellationError {
+            return
+        } catch let error as APIError {
+            currentUser = nil
+            isOptionalProfileNoticeDismissed = false
+            isProfileSetupStarted = false
+            if error.invalidatesSession {
+                repository.clearSession()
+                sessionError = nil
+                phase = .unauthenticated
+            } else {
+                sessionError = error.localizedDescription
+                phase = .launching
+            }
         } catch {
             repository.clearSession()
             currentUser = nil
@@ -111,15 +135,22 @@ final class AppState: ObservableObject {
         isRefreshingUser = true
         defer { isRefreshingUser = false }
         do { currentUser = try await repository.currentUser(); sessionError = nil }
-        catch { sessionError = error.localizedDescription }
+        catch {
+            if !invalidateSessionIfNeeded(error) { sessionError = error.localizedDescription }
+        }
     }
 
     func updateProfile(_ payload: UpdateProfilePayload) async throws {
-        currentUser = try await repository.updateProfile(payload)
-        if currentUser?.profileStatus == .complete {
-            isOptionalProfileNoticeDismissed = false
+        do {
+            currentUser = try await repository.updateProfile(payload)
+            if currentUser?.profileStatus == .complete {
+                isOptionalProfileNoticeDismissed = false
+            }
+            sessionError = nil
+        } catch {
+            _ = invalidateSessionIfNeeded(error)
+            throw error
         }
-        sessionError = nil
     }
 
     func dismissOptionalProfileNotice() {
@@ -149,6 +180,7 @@ final class AppState: ObservableObject {
                 Data()
             }
         } catch {
+            if invalidateSessionIfNeeded(error) { return }
             // A missing storage configuration must not end the authenticated session.
             profilePhotos = ProfilePhotos(avatar: nil, photos: [])
             avatarImageData = Data()
@@ -160,7 +192,7 @@ final class AppState: ObservableObject {
             _ = try await profileMediaRepository.uploadAvatar(imageData)
             await reloadProfileMedia()
         } catch {
-            sessionError = error.localizedDescription
+            if !invalidateSessionIfNeeded(error) { sessionError = error.localizedDescription }
             throw error
         }
     }
@@ -170,13 +202,18 @@ final class AppState: ObservableObject {
             _ = try await profileMediaRepository.uploadPhoto(imageData)
             await reloadProfileMedia()
         } catch {
-            sessionError = error.localizedDescription
+            if !invalidateSessionIfNeeded(error) { sessionError = error.localizedDescription }
             throw error
         }
     }
 
     func profilePhotoData(_ photo: ProfilePhoto) async -> Data {
-        (try? await profileMediaRepository.content(for: photo)) ?? Data()
+        do {
+            return try await profileMediaRepository.content(for: photo)
+        } catch {
+            _ = invalidateSessionIfNeeded(error)
+            return Data()
+        }
     }
 
     func deleteProfilePhoto(_ photo: ProfilePhoto) async throws {
@@ -184,7 +221,7 @@ final class AppState: ObservableObject {
             try await profileMediaRepository.delete(photo)
             await reloadProfileMedia()
         } catch {
-            sessionError = error.localizedDescription
+            if !invalidateSessionIfNeeded(error) { sessionError = error.localizedDescription }
             throw error
         }
     }
@@ -220,5 +257,19 @@ final class AppState: ObservableObject {
 
     private func optionalProfileNoticeStorageKey(for user: CurrentUser) -> String {
         "gonow.profile.optional-notice.dismissed.\(user.id.uuidString)"
+    }
+
+    @discardableResult
+    private func invalidateSessionIfNeeded(_ error: Error) -> Bool {
+        guard let apiError = error as? APIError, apiError.invalidatesSession else { return false }
+        repository.clearSession()
+        currentUser = nil
+        profilePhotos = ProfilePhotos(avatar: nil, photos: [])
+        avatarImageData = Data()
+        isOptionalProfileNoticeDismissed = false
+        isProfileSetupStarted = false
+        sessionError = nil
+        phase = .unauthenticated
+        return true
     }
 }

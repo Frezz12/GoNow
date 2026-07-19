@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct AuthenticationFlowView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isRegistering = false
 
     var body: some View {
@@ -10,7 +11,7 @@ struct AuthenticationFlowView: View {
                 if isRegistering { RegisterView(onShowLogin: { isRegistering = false }) }
                 else { LoginView(onShowRegister: { isRegistering = true }) }
             }
-                .animation(AppAnimation.standard, value: isRegistering)
+                .animation(reduceMotion ? nil : AppAnimation.standard, value: isRegistering)
         }
         .tint(AppColors.accentPrimary)
     }

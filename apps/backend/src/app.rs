@@ -22,7 +22,8 @@ use uuid::Uuid;
 use crate::{
     config::Config,
     infrastructure::storage::S3ObjectStorage,
-    modules::{auth, media, users, weather},
+    modules::{activities, auth, map_proxy, media, users, weather},
+    shared::errors::with_request_id,
 };
 
 #[derive(Clone)]
@@ -68,19 +69,14 @@ impl AppState {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, users::public_profile, media::list_profile_photos, media::upload_avatar, media::upload_profile_photo, media::download_profile_photo, media::delete_profile_photo, weather::current, health),
-    components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, users::PublicProfileResponse, users::UpdateProfileRequest, media::ProfilePhotoResponse, media::ProfilePhotosResponse, weather::CurrentWeatherResponse, crate::shared::response::ErrorEnvelope)),
-    tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"), (name = "media", description = "Private profile photos"), (name = "weather", description = "Current weather"))
+    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, users::public_profile, media::list_profile_photos, media::upload_avatar, media::upload_profile_photo, media::download_profile_photo, media::delete_profile_photo, weather::current, activities::create, activities::map, health),
+    components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, users::PublicProfileResponse, users::UpdateProfileRequest, media::ProfilePhotoResponse, media::ProfilePhotosResponse, weather::CurrentWeatherResponse, activities::CreateActivityRequest, activities::MapActivityResponse, activities::ActivityCoordinateResponse, activities::MapViewportResponse, activities::MapActivitiesData, activities::MapActivitiesMeta, activities::MapActivitiesEnvelope, crate::shared::response::ErrorEnvelope)),
+    tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"), (name = "media", description = "Private profile photos"), (name = "weather", description = "Current weather"), (name = "activities", description = "Offline activities and map discovery"))
 )]
 struct ApiDoc;
 
 pub fn router(state: AppState) -> Router {
-    let origins: Vec<HeaderValue> = state
-        .config
-        .cors_allowed_origins
-        .iter()
-        .filter_map(|origin| origin.parse().ok())
-        .collect();
+    let origins: Vec<HeaderValue> = state.config.cors_allowed_origins.clone();
     let cors = CorsLayer::new()
         .allow_methods([
             Method::GET,
@@ -100,7 +96,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/refresh", post(auth::refresh))
         .route("/api/v1/auth/logout", post(auth::logout))
+        .route("/api/v1/activities", post(activities::create))
+        .route("/api/v1/activities/map", get(activities::map))
         .route("/api/v1/weather/current", get(weather::current))
+        .route("/api/v1/map/style", get(map_proxy::style))
+        .route("/api/v1/map/planet", get(map_proxy::planet))
+        .route("/api/v1/map/resources/{*path}", get(map_proxy::resource))
         .route("/api/v1/users/me", get(users::me).patch(users::update_me))
         .route("/api/v1/users/{user_id}", get(users::public_profile))
         .route(
@@ -120,7 +121,7 @@ pub fn router(state: AppState) -> Router {
         .layer(middleware::from_fn(request_id))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .layer(DefaultBodyLimit::max(media::MAX_IMAGE_BYTES))
+        .layer(DefaultBodyLimit::max(media::MAX_MULTIPART_BODY_BYTES))
         .with_state(state)
 }
 
@@ -133,21 +134,19 @@ async fn request_id(mut request: Request, next: Next) -> Response {
         .headers()
         .get("x-request-id")
         .and_then(|value| value.to_str().ok())
-        .map(str::to_owned)
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .map(|value| value.to_string())
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     request.extensions_mut().insert(request_id.clone());
-    let mut response = next.run(request).await;
-    if !response.headers().contains_key("x-request-id") {
-        if let Ok(value) = request_id.parse() {
-            response.headers_mut().insert("x-request-id", value);
-        }
+    let mut response = with_request_id(request_id.clone(), next.run(request)).await;
+    if let Ok(value) = request_id.parse() {
+        response.headers_mut().insert("x-request-id", value);
     }
     info!(
         operation,
         action,
         method = %method,
         path = %uri.path(),
-        query = ?uri.query(),
         status = response.status().as_u16(),
         latency_ms = started_at.elapsed().as_millis(),
         %request_id,
@@ -170,6 +169,13 @@ fn request_operation(method: &Method, path: &str) -> (&'static str, &'static str
         ("POST", "/api/v1/auth/refresh") => ("auth.refresh", "Обновление сессии"),
         ("POST", "/api/v1/auth/logout") => ("auth.logout", "Выход"),
         ("GET", "/api/v1/weather/current") => ("weather.current", "Текущая погода"),
+        ("GET", "/api/v1/map/style") => ("map.style", "Стиль карты"),
+        ("GET", "/api/v1/map/planet") => ("map.tilejson", "Описание тайлов карты"),
+        ("GET", path) if path.starts_with("/api/v1/map/resources/") => {
+            ("map.resource", "Ресурс карты")
+        }
+        ("POST", "/api/v1/activities") => ("activities.create", "Создание активности"),
+        ("GET", "/api/v1/activities/map") => ("activities.map", "Получение активностей на карте"),
         ("GET", "/api/v1/users/me") => ("users.me.get", "Получение своего профиля"),
         ("PATCH", "/api/v1/users/me") => ("users.me.update", "Обновление профиля"),
         ("GET", "/api/v1/users/me/photos") => ("media.photos.list", "Список фотографий"),
