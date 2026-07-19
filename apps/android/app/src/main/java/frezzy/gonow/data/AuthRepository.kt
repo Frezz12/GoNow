@@ -112,9 +112,9 @@ class AuthRepository(
         return response.data
     }
 
-    suspend fun getPhotoContent(contentPath: String): ByteArray {
+    suspend fun getPhotoContent(photoId: String): ByteArray {
         return apiClient.authenticatedRequest {
-            val response = apiClient.api.getPhotoContent(contentPath)
+            val response = apiClient.api.getPhotoContent(photoId)
             if (response.isSuccessful) {
                 response.body()?.bytes() ?: ByteArray(0)
             } else {

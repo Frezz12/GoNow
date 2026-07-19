@@ -1,3 +1,5 @@
+SHELL := C:/Program Files/Git/bin/bash.exe
+
 .PHONY: start-infrastructure stop-infrastructure backend-dev backend-test backend-integration-test migrate reset-development-database
 
 start-infrastructure:

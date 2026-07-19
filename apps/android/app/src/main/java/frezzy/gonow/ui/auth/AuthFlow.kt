@@ -17,7 +17,38 @@ fun AuthFlow(
     val state = viewModel.uiState
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Password recovery overlay
+        // Login / Register
+        AnimatedContent(
+            targetState = state.isLoginMode,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(300)) + slideInHorizontally(
+                    animationSpec = tween(300),
+                    initialOffsetX = { if (targetState) -it else it }
+                ) togetherWith fadeOut(animationSpec = tween(200))
+            },
+            label = "auth_content"
+        ) { isLogin ->
+            if (isLogin) {
+                LoginScreen(
+                    onLogin = viewModel::login,
+                    onNavigateToRegister = viewModel::toggleMode,
+                    onForgotPassword = viewModel::showPasswordRecovery,
+                    isLoading = state.isLoading,
+                    fieldErrors = state.fieldErrors,
+                    errorMessage = state.errorMessage
+                )
+            } else {
+                RegisterScreen(
+                    onRegister = viewModel::register,
+                    onNavigateToLogin = viewModel::toggleMode,
+                    isLoading = state.isLoading,
+                    fieldErrors = state.fieldErrors,
+                    errorMessage = state.errorMessage
+                )
+            }
+        }
+
+        // Password recovery sheet
         if (state.showPasswordRecovery) {
             PasswordRecoveryScreen(
                 email = state.recoveryEmail,
@@ -36,9 +67,10 @@ fun AuthFlow(
                 errorMessage = state.errorMessage
             )
         }
-        // Email verification overlay
-        else if (state.pendingVerificationEmail != null) {
-            EmailVerificationScreen(
+
+        // Email verification sheet
+        if (state.pendingVerificationEmail != null) {
+            EmailVerificationSheet(
                 email = state.pendingVerificationEmail,
                 code = state.verificationCode,
                 onCodeChange = viewModel::onVerificationCodeChange,
@@ -48,38 +80,6 @@ fun AuthFlow(
                 isLoading = state.isLoading,
                 errorMessage = state.errorMessage
             )
-        }
-        // Login / Register
-        else {
-            AnimatedContent(
-                targetState = state.isLoginMode,
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(300)) + slideInHorizontally(
-                        animationSpec = tween(300),
-                        initialOffsetX = { if (targetState) -it else it }
-                    ) togetherWith fadeOut(animationSpec = tween(200))
-                },
-                label = "auth_content"
-            ) { isLogin ->
-                if (isLogin) {
-                    LoginScreen(
-                        onLogin = viewModel::login,
-                        onNavigateToRegister = viewModel::toggleMode,
-                        onForgotPassword = viewModel::showPasswordRecovery,
-                        isLoading = state.isLoading,
-                        fieldErrors = state.fieldErrors,
-                        errorMessage = state.errorMessage
-                    )
-                } else {
-                    RegisterScreen(
-                        onRegister = viewModel::register,
-                        onNavigateToLogin = viewModel::toggleMode,
-                        isLoading = state.isLoading,
-                        fieldErrors = state.fieldErrors,
-                        errorMessage = state.errorMessage
-                    )
-                }
-            }
         }
     }
 }

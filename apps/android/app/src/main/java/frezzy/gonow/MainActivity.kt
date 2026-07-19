@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun LaunchScreen() {
     Box(
-        modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BackdropTop, BackdropMid, BackdropBottom))),
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {

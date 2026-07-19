@@ -41,11 +41,7 @@ fun AuthBackdrop(content: @Composable BoxScope.() -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(BackdropTop, BackdropMid, BackdropBottom)
-                )
-            ),
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.TopCenter,
         content = content
     )
@@ -58,34 +54,18 @@ fun GlassCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(24.dp)
-    Column(
-        modifier = modifier
-            .shadow(
-                elevation = 8.dp,
-                shape = shape,
-                ambientColor = Primary.copy(alpha = 0.12f),
-                spotColor = Primary.copy(alpha = 0.08f)
-            )
-            .clip(shape)
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(GlassBackground, Color(0x15FFFFFF))
-                )
-            )
-            .border(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(GlassBorder, GlassBorderBottom)
-                ),
-                shape = shape
-            )
-            .padding(18.dp),
-        content = content
-    )
+    val shape = RoundedCornerShape(20.dp)
+    Card(
+        modifier = modifier,
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(18.dp), content = content)
+    }
 }
 
-// ─── Gradient Primary Button ─────────────────────────────────
+// ─── Primary Button ─────────────────────────────────────────
 
 @Composable
 fun GradientPrimaryButton(
@@ -95,70 +75,33 @@ fun GradientPrimaryButton(
     enabled: Boolean = true,
     loading: Boolean = false
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.98f else 1f,
-        animationSpec = tween(160),
-        label = "press_scale"
-    )
-    val alpha by animateFloatAsState(
-        targetValue = if (isPressed) 0.82f else 1f,
-        animationSpec = tween(160),
-        label = "press_alpha"
-    )
-
-    val gradient = Brush.horizontalGradient(colors = listOf(ButtonStart, ButtonEnd))
-    val shape = RoundedCornerShape(26.dp)
-
     Button(
         onClick = onClick,
         enabled = enabled && !loading,
-        interactionSource = interactionSource,
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
-            .graphicsLayer { this.scaleX = scale; this.scaleY = scale; this.alpha = alpha }
-            .shadow(
-                elevation = 14.dp,
-                shape = shape,
-                ambientColor = Primary.copy(alpha = 0.32f),
-                spotColor = Primary.copy(alpha = 0.32f)
-            ),
-        shape = shape,
-        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-        contentPadding = PaddingValues(0.dp)
+            .height(52.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(gradient)
-                .border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.2f),
-                    shape = shape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Text(
-                    text = text,
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp
-                )
-            }
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                color = MaterialTheme.colorScheme.onPrimary,
+                strokeWidth = 2.dp
+            )
+        } else {
+            Text(
+                text = text,
+                color = MaterialTheme.colorScheme.onPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp
+            )
         }
     }
 }
 
-// ─── Glass Secondary Button ──────────────────────────────────
+// ─── Secondary Button ──────────────────────────────────────
 
 @Composable
 fun GlassSecondaryButton(
@@ -168,26 +111,20 @@ fun GlassSecondaryButton(
     destructive: Boolean = false
 ) {
     val textColor = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-    val borderColor = if (destructive) MaterialTheme.colorScheme.error.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outline
 
     OutlinedButton(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        border = ButtonDefaults.outlinedButtonBorder.copy(
-            brush = Brush.horizontalGradient(
-                colors = listOf(borderColor, borderColor)
-            )
-        )
+        shape = RoundedCornerShape(16.dp),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Text(text = text, color = textColor, fontWeight = FontWeight.SemiBold)
     }
 }
 
-// ─── Liquid Glass Text Field ─────────────────────────────────
+// ─── Glass Text Field ─────────────────────────────────────────
 
 @Composable
 fun LiquidGlassField(
@@ -203,41 +140,16 @@ fun LiquidGlassField(
     val shape = RoundedCornerShape(18.dp)
     var passwordVisible by remember { mutableStateOf(false) }
 
-    val focusGradient = Brush.linearGradient(
-        colors = listOf(Primary, Accent, FocusBlue, Primary)
-    )
-
-    val borderColor = when {
-        error != null -> Danger
-        else -> Color.Transparent
-    }
-
     Column(modifier = modifier) {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
             label = { Text(label) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (error == null) {
-                        Modifier.border(
-                            width = 1.5.dp,
-                            brush = focusGradient,
-                            shape = shape
-                        )
-                    } else {
-                        Modifier.border(
-                            width = 1.5.dp,
-                            color = borderColor,
-                            shape = shape
-                        )
-                    }
-                ),
+            modifier = Modifier.fillMaxWidth(),
             shape = shape,
             colors = OutlinedTextFieldDefaults.colors(
-                unfocusedBorderColor = Color.Transparent,
-                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -323,8 +235,14 @@ fun TaskPreviewCard(
     subtitle: String,
     modifier: Modifier = Modifier
 ) {
-    GlassCard(modifier = modifier.fillMaxWidth()) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Row(
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -332,13 +250,13 @@ fun TaskPreviewCard(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Primary.copy(alpha = 0.12f)),
+                    .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = Primary,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(20.dp)
                 )
             }

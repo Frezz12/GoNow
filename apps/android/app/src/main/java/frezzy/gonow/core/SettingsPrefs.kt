@@ -14,6 +14,9 @@ class SettingsPrefs(context: Context) {
     var temperatureUnit = mutableStateOf(prefs.getInt(KEY_TEMP_UNIT, TEMP_AUTO))
         private set
 
+    var useProfileLocation = mutableStateOf(prefs.getBoolean(KEY_USE_PROFILE_LOCATION, false))
+        private set
+
     fun setThemeMode(value: Int) {
         themeMode.value = value
         prefs.edit().putInt(KEY_THEME, value).apply()
@@ -22,6 +25,11 @@ class SettingsPrefs(context: Context) {
     fun setTemperatureUnit(value: Int) {
         temperatureUnit.value = value
         prefs.edit().putInt(KEY_TEMP_UNIT, value).apply()
+    }
+
+    fun setUseProfileLocation(value: Boolean) {
+        useProfileLocation.value = value
+        prefs.edit().putBoolean(KEY_USE_PROFILE_LOCATION, value).apply()
     }
 
     companion object {
@@ -35,6 +43,7 @@ class SettingsPrefs(context: Context) {
 
         private const val KEY_THEME = "theme_mode"
         private const val KEY_TEMP_UNIT = "temperature_unit"
+        private const val KEY_USE_PROFILE_LOCATION = "use_profile_location"
 
         @Volatile
         private var INSTANCE: SettingsPrefs? = null

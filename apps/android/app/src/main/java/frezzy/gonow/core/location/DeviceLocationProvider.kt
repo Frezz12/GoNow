@@ -4,7 +4,6 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
-import android.location.Location
 import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +35,9 @@ class DeviceLocationProvider(private val context: Context) {
     var error by mutableStateOf<String?>(null)
         private set
 
+    private var locationCallback: LocationCallback? = null
+    private var isTracking = false
+
     fun checkPermission() {
         hasPermission = ContextCompat.checkSelfPermission(
             context, Manifest.permission.ACCESS_FINE_LOCATION
@@ -55,7 +57,7 @@ class DeviceLocationProvider(private val context: Context) {
         isRequesting = true
 
         try {
-            fusedClient.lastLocation.addOnSuccessListener { location: Location? ->
+            fusedClient.lastLocation.addOnSuccessListener { location ->
                 if (location != null) {
                     latitude = location.latitude
                     longitude = location.longitude
@@ -71,6 +73,37 @@ class DeviceLocationProvider(private val context: Context) {
             isRequesting = false
             error = "Нет разрешения на геолокацию"
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun startTracking() {
+        if (isTracking || !hasPermission) return
+        isTracking = true
+
+        val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 10_000L)
+            .setMinUpdateDistanceMeters(1000f)
+            .setMinUpdateIntervalMillis(10_000L)
+            .build()
+
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                val location = result.lastLocation ?: return
+                latitude = location.latitude
+                longitude = location.longitude
+            }
+        }
+
+        try {
+            fusedClient.requestLocationUpdates(request, locationCallback!!, Looper.getMainLooper())
+        } catch (_: SecurityException) {
+            isTracking = false
+        }
+    }
+
+    fun stopTracking() {
+        locationCallback?.let { fusedClient.removeLocationUpdates(it) }
+        locationCallback = null
+        isTracking = false
     }
 
     @SuppressLint("MissingPermission")

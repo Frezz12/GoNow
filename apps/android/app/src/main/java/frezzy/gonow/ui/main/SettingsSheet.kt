@@ -25,6 +25,7 @@ fun SettingsSheet(
 ) {
     val themeMode = settingsPrefs.themeMode.value
     val tempUnit = settingsPrefs.temperatureUnit.value
+    val useProfileLocation by settingsPrefs.useProfileLocation
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -85,6 +86,28 @@ fun SettingsSheet(
                         Text("Погода", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                     }
                     Spacer(Modifier.height(6.dp))
+
+                    // Weather source toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Источник погоды", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(
+                                if (useProfileLocation) "По городу из профиля" else "По геолокации",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = useProfileLocation,
+                            onCheckedChange = { settingsPrefs.setUseProfileLocation(it) }
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
                     Text("Единицы температуры для виджета на карте.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(12.dp))
 

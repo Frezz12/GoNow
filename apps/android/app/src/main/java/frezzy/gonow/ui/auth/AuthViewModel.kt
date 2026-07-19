@@ -28,7 +28,8 @@ data class AuthUiState(
     val isRecoveryCodeSent: Boolean = false,
     // Profile
     val profilePhotos: ProfilePhotos = ProfilePhotos(),
-    val avatarBytes: ByteArray? = null
+    val avatarBytes: ByteArray? = null,
+    val photoContentMap: Map<String, ByteArray> = emptyMap()
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -39,6 +40,7 @@ data class AuthUiState(
             && showPasswordRecovery == other.showPasswordRecovery
             && isRecoveryCodeSent == other.isRecoveryCodeSent
             && profilePhotos == other.profilePhotos
+            && photoContentMap == other.photoContentMap
             && avatarBytes?.contentEquals(other.avatarBytes ?: ByteArray(0)) == true
     }
     override fun hashCode(): Int = phase.hashCode()
@@ -187,10 +189,13 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
         viewModelScope.launch {
             try {
                 val media = authRepository.getProfilePhotos()
-                val avatar = media.avatar?.let { authRepository.getPhotoContent(it.contentPath) }
-                uiState = uiState.copy(profilePhotos = media, avatarBytes = avatar)
-            } catch (_: Exception) {
-                uiState = uiState.copy(profilePhotos = ProfilePhotos(), avatarBytes = null)
+                val avatar = media.avatar?.let { authRepository.getPhotoContent(it.id) }
+                // Keep only content for photos still in the list
+                val validIds = media.photos.map { it.id }.toSet() + media.avatar?.id
+                val filteredContent = uiState.photoContentMap.filter { it.key in validIds }
+                uiState = uiState.copy(profilePhotos = media, avatarBytes = avatar, photoContentMap = filteredContent)
+            } catch (e: Exception) {
+                uiState = uiState.copy(profilePhotos = ProfilePhotos(), avatarBytes = null, photoContentMap = emptyMap())
             }
         }
     }
@@ -220,6 +225,17 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
             try {
                 authRepository.deletePhoto(photoId)
                 reloadProfileMedia()
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun loadPhotoContent(photoId: String) {
+        if (uiState.photoContentMap.containsKey(photoId)) return
+        val photo = uiState.profilePhotos.photos.find { it.id == photoId } ?: return
+        viewModelScope.launch {
+            try {
+                val bytes = authRepository.getPhotoContent(photoId)
+                uiState = uiState.copy(photoContentMap = uiState.photoContentMap + (photoId to bytes))
             } catch (_: Exception) { }
         }
     }

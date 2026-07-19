@@ -1,7 +1,6 @@
 package frezzy.gonow.ui.main
 
 import android.Manifest
-import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -18,9 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import frezzy.gonow.core.SettingsPrefs
 import frezzy.gonow.core.location.DeviceLocationProvider
 import frezzy.gonow.core.weather.WeatherViewModel
@@ -38,27 +35,43 @@ fun MapTab(
     settingsPrefs: SettingsPrefs
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    val context = LocalContext.current
+    var permissionRequested by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val granted = permissions.values.any { it }
+        locationProvider.checkPermission()
         if (granted) {
-            locationProvider.checkPermission()
             locationProvider.requestLocation()
+            locationProvider.startTracking()
         }
     }
 
+    // Request permission once on first show
     LaunchedEffect(Unit) {
         locationProvider.checkPermission()
-        if (!locationProvider.hasPermission) {
+        if (!locationProvider.hasPermission && !permissionRequested) {
+            permissionRequested = true
             permissionLauncher.launch(
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
             )
-        } else {
+        } else if (locationProvider.hasPermission) {
             locationProvider.requestLocation()
+            locationProvider.startTracking()
         }
+    }
+
+    // Start tracking when permission is granted externally
+    LaunchedEffect(locationProvider.hasPermission) {
+        if (locationProvider.hasPermission) {
+            locationProvider.requestLocation()
+            locationProvider.startTracking()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { locationProvider.stopTracking() }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -105,7 +118,6 @@ fun MapTab(
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .offset(x = 0.dp, y = 0.dp)
                             .size(18.dp)
                             .clip(CircleShape)
                             .background(status.color)
@@ -138,18 +150,14 @@ private fun MapPreviewSurface() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                androidx.compose.ui.graphics.Brush.verticalGradient(
-                    colors = listOf(Color(0xFFEFEDF5), Color(0xFF1E1C2D))
-                )
-            )
+            .background(MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val river = androidx.compose.ui.graphics.Path().apply {
                 moveTo(-20f, size.height * 0.72f)
                 cubicTo(size.width * 0.28f, size.height * 0.94f, size.width * 0.68f, size.height * 0.12f, size.width + 30f, size.height * 0.30f)
             }
-            drawPath(river, color = Color(0x9EFFFFFF), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 22f))
+            drawPath(river, color = Color(0xFFB0BEC5), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 18f))
 
             listOf(0.16f, 0.34f, 0.56f, 0.78f).forEachIndexed { index, ratio ->
                 val street = androidx.compose.ui.graphics.Path().apply {
@@ -157,7 +165,7 @@ private fun MapPreviewSurface() {
                     val endY = size.height * (ratio + if (index % 2 == 0) 0.13f else -0.11f)
                     cubicTo(size.width * 0.30f, size.height * (ratio - 0.08f), size.width * 0.72f, size.height * (ratio + 0.08f), size.width + 20f, endY)
                 }
-                drawPath(street, color = Color(0xD1FFFFFF), style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (index == 1) 11f else 7f))
+                drawPath(street, color = Color(0xFFCFD8DC), style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (index == 1) 10f else 6f))
             }
 
             listOf(0.19f, 0.47f, 0.73f, 0.91f).forEach { ratio ->
@@ -165,7 +173,7 @@ private fun MapPreviewSurface() {
                     moveTo(size.width * ratio, -20f)
                     lineTo(size.width * (ratio - 0.18f), size.height + 20f)
                 }
-                drawPath(street, color = Color(0xBDFFFFFF), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 6f))
+                drawPath(street, color = Color(0xFFCFD8DC), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5f))
             }
         }
 
@@ -174,14 +182,14 @@ private fun MapPreviewSurface() {
                 .offset(x = (-22).dp, y = 126.dp)
                 .size(140.dp, 90.dp)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(34.dp))
-                .background(Color(0x38229F72))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
         )
         Box(
             modifier = Modifier
                 .offset(x = 200.dp, y = 400.dp)
                 .size(160.dp, 80.dp)
                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(30.dp))
-                .background(Color(0x29229F72))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
         )
     }
 }

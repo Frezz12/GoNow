@@ -1,4 +1,4 @@
-﻿package frezzy.gonow.ui.auth
+package frezzy.gonow.ui.auth
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -16,10 +16,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import frezzy.gonow.ui.theme.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PasswordRecoveryScreen(
     email: String,
@@ -39,24 +41,23 @@ fun PasswordRecoveryScreen(
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
 
-    AuthBackdrop {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(80.dp))
-
-            MapPointMarker(modifier = Modifier.size(58.dp))
-
-            Spacer(modifier = Modifier.height(16.dp))
-
             Text(
                 text = if (isCodeSent) "Установите новый пароль" else "Восстановление пароля",
-                style = MaterialTheme.typography.headlineLarge,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -65,61 +66,58 @@ fun PasswordRecoveryScreen(
                 text = if (isCodeSent)
                     "Введите код из письма и придумайте новый пароль."
                 else
-                    "Введите email. Если аккаунт существует, мы отправим код для восстановления.",
+                    "Введите email. Мы отправим код для восстановления.",
                 style = MaterialTheme.typography.bodyMedium,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             if (!isCodeSent) {
-                RecAuthField(
+                RecField(
                     label = "Email",
                     value = email,
                     onValueChange = onEmailChange,
                     placeholder = "Email",
-                    keyboardType = KeyboardType.Email,
-                    error = null
+                    keyboardType = KeyboardType.Email
                 )
             } else {
-                RecAuthField(
+                RecField(
                     label = "Код из письма",
                     value = code,
                     onValueChange = { if (it.length <= 6) onCodeChange(it.filter { c -> c.isDigit() }) },
                     placeholder = "000000",
-                    keyboardType = KeyboardType.Number,
-                    error = null
+                    keyboardType = KeyboardType.Number
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                RecAuthPasswordField(
+                RecPasswordField(
                     label = "Новый пароль",
                     value = newPassword,
                     onValueChange = onNewPasswordChange,
                     isVisible = passwordVisible,
-                    onToggleVisibility = { passwordVisible = !passwordVisible },
-                    error = null
+                    onToggleVisibility = { passwordVisible = !passwordVisible }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                RecAuthPasswordField(
+                RecPasswordField(
                     label = "Повторите пароль",
                     value = confirmation,
                     onValueChange = onConfirmationChange,
                     isVisible = passwordVisible,
-                    onToggleVisibility = { passwordVisible = !passwordVisible },
-                    error = null
+                    onToggleVisibility = { passwordVisible = !passwordVisible }
                 )
             }
 
             if (errorMessage != null) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 ErrorMessage(text = errorMessage)
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             GradientPrimaryButton(
                 text = when {
@@ -142,14 +140,14 @@ fun PasswordRecoveryScreen(
                 ) {
                     Text(
                         text = "Отправить код ещё раз",
-                        color = Primary,
+                        color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 14.sp
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             TextButton(
                 onClick = onDismiss,
@@ -166,13 +164,12 @@ fun PasswordRecoveryScreen(
 }
 
 @Composable
-private fun RecAuthField(
+private fun RecField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    error: String?
+    keyboardType: KeyboardType = KeyboardType.Text
 ) {
     Column {
         Text(
@@ -186,13 +183,12 @@ private fun RecAuthField(
             onValueChange = onValueChange,
             placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                
                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
                 unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -201,20 +197,18 @@ private fun RecAuthField(
                 errorTextColor = MaterialTheme.colorScheme.onSurface
             ),
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            isError = error != null
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType)
         )
     }
 }
 
 @Composable
-private fun RecAuthPasswordField(
+private fun RecPasswordField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
     isVisible: Boolean,
-    onToggleVisibility: () -> Unit,
-    error: String?
+    onToggleVisibility: () -> Unit
 ) {
     Column {
         Text(
@@ -228,13 +222,12 @@ private fun RecAuthPasswordField(
             onValueChange = onValueChange,
             placeholder = { Text("Пароль", color = MaterialTheme.colorScheme.onSurfaceVariant) },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                 focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                
                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
                 unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                 unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -256,8 +249,7 @@ private fun RecAuthPasswordField(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            },
-            isError = error != null
+            }
         )
     }
 }

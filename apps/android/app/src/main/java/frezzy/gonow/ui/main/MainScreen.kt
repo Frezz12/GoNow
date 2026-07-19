@@ -1,4 +1,4 @@
-﻿package frezzy.gonow.ui.main
+package frezzy.gonow.ui.main
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -102,6 +102,7 @@ fun MainScreen(
                         user = user,
                         avatarBytes = avatarBytes,
                         profilePhotos = viewModel.uiState.profilePhotos.photos,
+                        photoContentMap = viewModel.uiState.photoContentMap,
                         onRefresh = { viewModel.refreshProfile() },
                         onLogout = onLogout,
                         onEditProfile = { showProfileEditor = true },
@@ -109,6 +110,7 @@ fun MainScreen(
                         onUploadAvatar = { viewModel.uploadAvatar(it) },
                         onUploadPhoto = { viewModel.uploadPhoto(it) },
                         onDeletePhoto = { viewModel.deletePhoto(it) },
+                        onLoadPhotoContent = { viewModel.loadPhotoContent(it) },
                         isLoading = viewModel.uiState.isLoading
                     )
                 }
@@ -122,7 +124,6 @@ fun MainScreen(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 152.dp)
             ) {
-                val gradient = Brush.horizontalGradient(colors = listOf(ButtonStart, ButtonEnd))
                 val shape = RoundedCornerShape(26.dp)
 
                 Surface(
@@ -134,24 +135,17 @@ fun MainScreen(
                         }
                     },
                     shape = shape,
-                    color = Color.Transparent,
-                    shadowElevation = 8.dp
+                    color = MaterialTheme.colorScheme.primary,
+                    shadowElevation = 6.dp
                 ) {
                     Row(
                         modifier = Modifier
-                            .background(gradient)
                             .padding(horizontal = 18.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.White.copy(alpha = 0.2f),
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = null, tint = Color.White, modifier = Modifier.padding(4.dp))
-                        }
-                        Text("Создать", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Icon(Icons.Filled.Add, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
+                        Text("Создать", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     }
                 }
             }
@@ -165,7 +159,9 @@ fun MainScreen(
     if (showProfileEditor && user != null) {
         ProfileEditorSheet(
             user = user,
+            avatarBytes = avatarBytes,
             onSave = { request -> viewModel.updateProfile(request); showProfileEditor = false },
+            onUploadAvatar = { viewModel.uploadAvatar(it) },
             onDismiss = { showProfileEditor = false },
             isLoading = viewModel.uiState.isLoading,
             errorMessage = viewModel.uiState.errorMessage

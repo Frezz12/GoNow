@@ -1,8 +1,10 @@
-﻿package frezzy.gonow.ui.auth
+package frezzy.gonow.ui.auth
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,8 +16,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import frezzy.gonow.ui.theme.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EmailVerificationScreen(
+fun EmailVerificationSheet(
     email: String,
     code: String,
     onCodeChange: (String) -> Unit,
@@ -25,51 +28,58 @@ fun EmailVerificationScreen(
     isLoading: Boolean,
     errorMessage: String?
 ) {
-    AuthBackdrop {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp),
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(80.dp))
-
-            MapPointMarker(modifier = Modifier.size(62.dp))
-
-            Spacer(modifier = Modifier.height(16.dp))
-
             Text(
                 text = "Подтвердите email",
-                style = MaterialTheme.typography.headlineLarge,
-                textAlign = TextAlign.Center
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Мы отправили шестизначный код на $email.",
+                text = "Код отправлен на $email",
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             OutlinedTextField(
                 value = code,
                 onValueChange = { if (it.length <= 6) onCodeChange(it.filter { c -> c.isDigit() }) },
-                placeholder = { Text("000000", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                placeholder = {
+                    Text(
+                        "000000",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
                     unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     errorBorderColor = MaterialTheme.colorScheme.error,
                     errorTextColor = MaterialTheme.colorScheme.onSurface
                 ),
@@ -84,11 +94,11 @@ fun EmailVerificationScreen(
             )
 
             if (errorMessage != null) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 ErrorMessage(text = errorMessage)
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             GradientPrimaryButton(
                 text = if (isLoading) "Проверяем..." else "Подтвердить",
@@ -97,7 +107,7 @@ fun EmailVerificationScreen(
                 enabled = code.length == 6 && !isLoading
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             TextButton(
                 onClick = onResend,
@@ -106,13 +116,13 @@ fun EmailVerificationScreen(
             ) {
                 Text(
                     text = "Отправить код ещё раз",
-                    color = Primary,
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             TextButton(
                 onClick = onDismiss,

@@ -1,4 +1,4 @@
-﻿package frezzy.gonow.ui.auth
+package frezzy.gonow.ui.auth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -48,24 +48,39 @@ fun LoginScreen(
         ) {
             Spacer(modifier = Modifier.height(80.dp))
 
-            MapPointMarker(modifier = Modifier.size(84.dp))
-            Spacer(modifier = Modifier.height(16.dp))
+            MapPointMarker(modifier = Modifier.size(72.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Text("Рядом — интереснее", style = MaterialTheme.typography.headlineLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text("Войдите, чтобы находить людей для активностей рядом.", style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             AuthField("Логин", email, { email = it }, "Email", KeyboardType.Email, fieldErrors["email"])
             Spacer(modifier = Modifier.height(16.dp))
             AuthPasswordField("Пароль", password, { password = it }, passwordVisible, { passwordVisible = !passwordVisible }, fieldErrors["password"])
 
+            Spacer(modifier = Modifier.height(4.dp))
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                TextButton(
+                    onClick = onForgotPassword,
+                    contentPadding = PaddingValues(horizontal = 4.dp)
+                ) {
+                    Text(
+                        "Забыли пароль?",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
             if (errorMessage != null) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 ErrorMessage(text = errorMessage)
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             GradientPrimaryButton(text = "Войти", onClick = { onLogin(email, password) }, loading = isLoading)
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -74,11 +89,7 @@ fun LoginScreen(
                 Text("Создать аккаунт", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
 
-            TextButton(onClick = onForgotPassword, modifier = Modifier.fillMaxWidth()) {
-                Text("Забыли пароль?", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-            }
-
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
