@@ -78,18 +78,26 @@ struct MapViewport: Codable, Equatable, Sendable {
 }
 
 enum ActivityCategory: String, Codable, CaseIterable, Identifiable, Sendable {
-    case sport
     case walking
+    case sport
     case travel
     case music
     case games
+    case food
     case help
     case education
     case animals
+    case event
     case other
 
     var id: String { rawValue }
     var titleKey: String { "map.category.\(rawValue)" }
+    var markerImageName: String { "gonow-map-pin-\(rawValue)" }
+
+    func markerImageName(isSelected: Bool) -> String {
+        markerImageName + (isSelected ? "-selected" : "")
+    }
+
     var symbol: String {
         switch self {
         case .sport: "figure.run"
@@ -97,9 +105,11 @@ enum ActivityCategory: String, Codable, CaseIterable, Identifiable, Sendable {
         case .travel: "airplane"
         case .music: "music.note"
         case .games: "gamecontroller.fill"
+        case .food: "fork.knife"
         case .help: "hand.raised.fill"
         case .education: "book.fill"
         case .animals: "pawprint.fill"
+        case .event: "calendar.badge.plus"
         case .other: "sparkles"
         }
     }
@@ -145,7 +155,7 @@ struct MapActivity: Codable, Identifiable, Equatable, Sendable {
             participantLimit: participantLimit,
             isFull: isFull,
             isSelected: isSelected,
-            markerImage: isSelected ? "gonow-map-point-selected" : "gonow-map-point"
+            markerImage: category.markerImageName(isSelected: isSelected)
         )
     }
 }

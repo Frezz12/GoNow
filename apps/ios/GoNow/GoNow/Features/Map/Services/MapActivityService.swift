@@ -38,12 +38,24 @@ struct MapActivityService: MapActivityRepository {
             startsAt: activity.startsAt,
             participantLimit: activity.participantLimit
         )
-        let envelope: APIEnvelope<MapActivity> = try await apiClient.post(
+        let envelope: APIEnvelope<GoNowActivity> = try await apiClient.post(
             "activities",
             body: request,
             authenticated: true
         )
-        return envelope.data
+        let created = envelope.data
+        return MapActivity(
+            id: created.id.uuidString,
+            title: created.title,
+            category: created.category,
+            coordinate: created.location.coordinate,
+            startsAt: created.startsAt,
+            participantCount: created.participantCount,
+            participantLimit: created.participantLimit,
+            distanceMeters: 0,
+            imageURL: nil,
+            isJoined: true
+        )
     }
 
     private static let iso8601 = ISO8601DateFormatter()

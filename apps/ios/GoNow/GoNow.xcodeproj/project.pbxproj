@@ -25,9 +25,22 @@
 		A120000130090A02003830BB /* GoNowTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoNowTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C0DE0001301A000100000001 /* Exceptions for "GoNow" folder in "GoNow" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Info-Debug.plist",
+			);
+			target = 952ED26B30090A02003830BB /* GoNow */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		952ED26E30090A02003830BB /* GoNow */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0DE0001301A000100000001 /* Exceptions for "GoNow" folder in "GoNow" target */,
+			);
 			path = GoNow;
 			sourceTree = "<group>";
 		};
@@ -334,15 +347,20 @@
 		952ED27830090A05003830BB /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APNS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = GoNow/GoNow.development.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = G44YGB3ZS9;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_GoNowAPIBaseURL = "http://127.0.0.1:8080/api/v1";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "GoNow/Info-Debug.plist";
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GoNow использует геопозицию, чтобы показывать текущую погоду и примерное расстояние до вас.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "GoNow использует микрофон только во время записи голосового сообщения.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "GoNow сохраняет выбранную фотографию в вашу медиатеку по вашему запросу.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -368,14 +386,18 @@
 		952ED27930090A05003830BB /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APNS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = GoNow/GoNow.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_GoNowAPIBaseURL = "https://api.gonow.example/api/v1";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GoNow использует геопозицию, чтобы показывать текущую погоду и примерное расстояние до вас.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "GoNow использует микрофон только во время записи голосового сообщения.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "GoNow сохраняет выбранную фотографию в вашу медиатеку по вашему запросу.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

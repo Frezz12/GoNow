@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ActivityMapCard: View {
     let activity: MapActivity
+    let onOpen: () -> Void
     let onClose: () -> Void
 
     var body: some View {
@@ -42,6 +43,10 @@ struct ActivityMapCard: View {
             }
             .font(AppTypography.captionStrong)
             .foregroundStyle(AppColors.textSecondary)
+
+            Button("map.activity.open", action: onOpen)
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTouchTarget)
         }
         .padding(AppSpacing.md)
         .glassSurface(.prominent, cornerRadius: AppRadius.card)

@@ -3,14 +3,18 @@ import Foundation
 
 @MainActor
 final class ActivityMapViewModel: ObservableObject {
-    @Published private(set) var activities: [MapActivity] = []
+    @Published private(set) var activities: [MapActivity] = [] {
+        didSet { rebuildVisibleActivities() }
+    }
+    @Published private(set) var visibleActivities: [MapActivity] = []
     @Published private(set) var state: MapContentState = .initial
     @Published var filters = MapFilterState()
     @Published var selectedActivity: MapActivity?
     @Published var isFilterPresented = false
     @Published var searchQuery = "" {
         didSet {
-            if let selectedActivity, !matchesSearch(selectedActivity) {
+            rebuildVisibleActivities()
+            if let selectedActivity, !visibleActivities.contains(where: { $0.id == selectedActivity.id }) {
                 self.selectedActivity = nil
             }
         }
@@ -19,10 +23,6 @@ final class ActivityMapViewModel: ObservableObject {
     @Published private(set) var creationError: String?
 
     let initialCamera: PersistedMapCamera
-
-    var visibleActivities: [MapActivity] {
-        activities.filter(matchesSearch)
-    }
 
     private let repository: any MapActivityRepository
     private let cameraStore: MapCameraStore
@@ -85,8 +85,7 @@ final class ActivityMapViewModel: ObservableObject {
                 startsAt: nil,
                 participantLimit: nil
             ))
-            activities.removeAll { $0.id == created.id }
-            activities.insert(created, at: 0)
+            activities = [created] + activities.filter { $0.id != created.id }
             selectedActivity = created
             state = .loaded
             loadedBounds = nil
@@ -134,11 +133,16 @@ final class ActivityMapViewModel: ObservableObject {
         }
     }
 
-    private func matchesSearch(_ activity: MapActivity) -> Bool {
+    private func rebuildVisibleActivities() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return true }
-        return activity.title.localizedStandardContains(query)
-            || L10n.string(activity.category.titleKey).localizedStandardContains(query)
+        guard !query.isEmpty else {
+            visibleActivities = activities
+            return
+        }
+        visibleActivities = activities.filter { activity in
+            activity.title.localizedStandardContains(query)
+                || L10n.string(activity.category.titleKey).localizedStandardContains(query)
+        }
     }
 }
 

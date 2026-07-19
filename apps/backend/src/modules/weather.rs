@@ -15,6 +15,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     app::AppState,
+    infrastructure::cache,
     shared::{errors::AppError, response::ApiResponse},
 };
 
@@ -22,6 +23,7 @@ const OPEN_METEO_URL: &str = "https://api.open-meteo.com/v1/forecast";
 const NOMINATIM_REVERSE_URL: &str = "https://nominatim.openstreetmap.org/reverse";
 const GEOCODING_CACHE_TTL_SECONDS: u64 = 60 * 60 * 24;
 const GEOCODING_CACHE_VERSION: &str = "v2";
+const WEATHER_CACHE_VERSION: &str = "v1";
 
 /// The public Nominatim endpoint permits at most one request per second.
 /// Cached coordinate cells keep this development fallback well below that limit.
@@ -46,7 +48,7 @@ pub struct CurrentWeatherQuery {
     pub locale: Option<String>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CurrentWeatherResponse {
     /// The city resolved for the same coordinates as the weather data.
@@ -129,6 +131,17 @@ pub async fn current(
         })));
     }
 
+    let geocoding_language = normalize_geocoding_language(query.locale.as_deref());
+    let cache_key = weather_cache_key(
+        query.latitude,
+        query.longitude,
+        &query.unit,
+        geocoding_language,
+    );
+    if let Some(cached) = cache::get_json::<CurrentWeatherResponse>(&state, &cache_key).await {
+        return Ok(Json(ApiResponse::new(cached)));
+    }
+
     let response = WEATHER_CLIENT
         .get(OPEN_METEO_URL)
         .query(&[
@@ -159,10 +172,8 @@ pub async fn current(
             AppError::service_unavailable()
         })?;
 
-    let geocoding_language = normalize_geocoding_language(query.locale.as_deref());
     let city = resolve_city(&state, query.latitude, query.longitude, geocoding_language).await;
-
-    Ok(Json(ApiResponse::new(CurrentWeatherResponse {
+    let response = CurrentWeatherResponse {
         city,
         temperature: payload.current.temperature,
         apparent_temperature: payload.current.apparent_temperature,
@@ -171,7 +182,24 @@ pub async fn current(
         unit: query.unit,
         weather_code: payload.current.weather_code,
         is_day: payload.current.is_day == 1,
-    })))
+    };
+    cache::set_json(
+        &state,
+        &cache_key,
+        &response,
+        state.config.redis_weather_cache_ttl_seconds,
+    )
+    .await;
+    Ok(Json(ApiResponse::new(response)))
+}
+
+fn weather_cache_key(latitude: f64, longitude: f64, unit: &str, language: &str) -> String {
+    // A roughly two-kilometre cell avoids duplicate provider calls caused by GPS jitter.
+    let latitude_cell = (latitude * 50.0).round() as i32;
+    let longitude_cell = (longitude * 50.0).round() as i32;
+    format!(
+        "cache:weather:{WEATHER_CACHE_VERSION}:{latitude_cell}:{longitude_cell}:{unit}:{language}"
+    )
 }
 
 async fn resolve_city(

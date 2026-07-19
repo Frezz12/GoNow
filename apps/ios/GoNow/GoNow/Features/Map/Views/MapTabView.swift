@@ -7,13 +7,13 @@ struct MapTabView: View {
     @Binding var isSearchActive: Bool
     @ObservedObject var model: ActivityMapViewModel
     @ObservedObject var location: DeviceLocationProvider
-    @State private var isNotificationsPresented = false
-    private let notificationCount = 0
+    let activityRepository: any ActivityRepository
     let onProfileTap: () -> Void
+    let onNotificationsTap: () -> Void
 
     var body: some View {
         ZStack {
-            ActivityMapView(model: model, location: location)
+            ActivityMapView(model: model, location: location, activityRepository: activityRepository)
 
             Group {
                 if isSearchActive {
@@ -36,11 +36,11 @@ struct MapTabView: View {
                             }
 
                             Button {
-                                isNotificationsPresented = true
+                                onNotificationsTap()
                             } label: {
                                 Label(
-                                    notificationCount > 0 ? L10n.string("map.notifications.count \(notificationCount)") : L10n.string("map.notifications.title"),
-                                    systemImage: notificationCount > 0 ? "bell.badge.fill" : "bell"
+                                    appState.unreadNotificationCount > 0 ? L10n.format("map.notifications.count %lld", appState.unreadNotificationCount) : L10n.string("map.notifications.title"),
+                                    systemImage: appState.unreadNotificationCount > 0 ? "bell.badge.fill" : "bell"
                                 )
                             }
                         } label: {
@@ -56,11 +56,6 @@ struct MapTabView: View {
             .padding(.horizontal, AppLayout.horizontalInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .animation(reduceMotion ? nil : AppAnimation.standard, value: isSearchActive)
-        }
-        .alert("map.notifications.title", isPresented: $isNotificationsPresented) {
-            Button("common.done", role: .cancel) {}
-        } message: {
-            Text("map.notifications.empty")
         }
     }
 

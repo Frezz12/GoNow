@@ -8,10 +8,15 @@ struct ProfileEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
     let user: CurrentUser
     @State private var displayName: String
+    @State private var username: String
+    @State private var usernameState: UsernameCheckState = .idle
     @State private var city: String
     @State private var occupation: String
     @State private var bio: String
     @State private var interests: String
+    @State private var languages: String
+    @State private var availability: String
+    @State private var preferredGroupSize: PreferredGroupSize?
     @State private var relationshipStatus: String
     @State private var locationLabel: String
     @State private var latitude: Double?
@@ -22,9 +27,12 @@ struct ProfileEditorSheet: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @FocusState private var isNameFocused: Bool
+    @FocusState private var isUsernameFocused: Bool
     @FocusState private var isCityFocused: Bool
     @FocusState private var isOccupationFocused: Bool
     @FocusState private var isInterestsFocused: Bool
+    @FocusState private var isLanguagesFocused: Bool
+    @FocusState private var isAvailabilityFocused: Bool
     @FocusState private var isRelationshipFocused: Bool
     @FocusState private var isLocationFocused: Bool
     @StateObject private var locationPicker = ProfileLocationPicker()
@@ -32,10 +40,14 @@ struct ProfileEditorSheet: View {
     init(user: CurrentUser) {
         self.user = user
         _displayName = State(initialValue: user.displayName)
+        _username = State(initialValue: user.username)
         _city = State(initialValue: user.city ?? "")
         _occupation = State(initialValue: user.occupation ?? "")
         _bio = State(initialValue: user.bio ?? "")
         _interests = State(initialValue: (user.interests ?? []).joined(separator: ", "))
+        _languages = State(initialValue: (user.languages ?? []).joined(separator: ", "))
+        _availability = State(initialValue: user.availability ?? "")
+        _preferredGroupSize = State(initialValue: user.preferredGroupSizeValue)
         _relationshipStatus = State(initialValue: user.relationshipStatus ?? "")
         _locationLabel = State(initialValue: user.locationLabel ?? "")
         _latitude = State(initialValue: user.latitude)
@@ -63,6 +75,11 @@ struct ProfileEditorSheet: View {
                         }
 
                         ProfileInput(title: L10n.string("profile.field.name"), text: $displayName, isFocused: $isNameFocused, contentType: .name, capitalization: .words)
+                        UsernameInput(
+                            username: $username,
+                            isFocused: $isUsernameFocused,
+                            state: usernameState
+                        )
                         ProfileInput(title: L10n.string("profile.field.city"), text: $city, isFocused: $isCityFocused, contentType: .addressCity, capitalization: .words)
                         ProfileInput(title: L10n.string("profile.field.occupation"), text: $occupation, isFocused: $isOccupationFocused, capitalization: .sentences)
                         ProfileInput(title: L10n.string("profile.field.relationship"), text: $relationshipStatus, isFocused: $isRelationshipFocused, capitalization: .sentences)
@@ -135,6 +152,48 @@ struct ProfileEditorSheet: View {
                             .font(.footnote)
                             .foregroundStyle(AppColors.textSecondary)
 
+                        GlassCard {
+                            VStack(alignment: .leading, spacing: AppSpacing.md) {
+                                Label("profile.compatibility.title", systemImage: "person.2.fill")
+                                    .font(AppTypography.sectionTitle)
+
+                                ProfileInput(
+                                    title: L10n.string("profile.languages.title"),
+                                    text: $languages,
+                                    isFocused: $isLanguagesFocused,
+                                    capitalization: .words
+                                )
+                                Text("profile.languages.helper")
+                                    .font(AppTypography.caption)
+                                    .foregroundStyle(AppColors.textSecondary)
+
+                                ProfileInput(
+                                    title: L10n.string("profile.availability.title"),
+                                    text: $availability,
+                                    isFocused: $isAvailabilityFocused,
+                                    capitalization: .sentences
+                                )
+                                Text("profile.availability.helper")
+                                    .font(AppTypography.caption)
+                                    .foregroundStyle(AppColors.textSecondary)
+
+                                VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                                    Text("profile.group.title")
+                                        .font(.subheadline.weight(.medium))
+                                    Picker("profile.group.title", selection: $preferredGroupSize) {
+                                        Text("profile.group.notSpecified").tag(PreferredGroupSize?.none)
+                                        ForEach(PreferredGroupSize.allCases) { value in
+                                            Text(LocalizedStringKey(value.titleKey)).tag(Optional(value))
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
+                                    .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+                                    .padding(.horizontal, AppSpacing.sm)
+                                    .liquidGlassField(isInvalid: false, isFocused: false)
+                                }
+                            }
+                        }
+
                         VStack(alignment: .leading, spacing: 6) {
                             Text("profile.bio.title")
                                 .font(.subheadline.weight(.medium))
@@ -180,6 +239,7 @@ struct ProfileEditorSheet: View {
                 locationLabel = label
             }
         }
+        .task(id: username) { await checkUsername() }
     }
 
     private func save() {
@@ -187,8 +247,23 @@ struct ProfileEditorSheet: View {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        let languageItems = languages
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         guard displayName.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else {
             errorMessage = L10n.string("validation.name.too_short")
+            return
+        }
+        let normalizedUsername = UsernameRules.normalize(username)
+        if let message = UsernameRules.validationMessage(normalizedUsername) {
+            errorMessage = message
+            isUsernameFocused = true
+            return
+        }
+        guard usernameState.isAvailable else {
+            errorMessage = usernameState.message ?? "Дождитесь проверки username"
+            isUsernameFocused = true
             return
         }
         guard hasBirthDate else {
@@ -199,11 +274,15 @@ struct ProfileEditorSheet: View {
         errorMessage = nil
         let payload = UpdateProfilePayload(
             displayName: displayName,
+            username: normalizedUsername,
             birthDate: ProfileDate.format(birthDate),
             city: city.nilIfEmpty,
             occupation: occupation.nilIfEmpty,
             bio: bio.nilIfEmpty,
             interests: items,
+            languages: languageItems,
+            availability: availability.nilIfEmpty,
+            preferredGroupSize: preferredGroupSize?.rawValue,
             relationshipStatus: relationshipStatus.nilIfEmpty,
             locationLabel: locationLabel.nilIfEmpty,
             latitude: latitude,
@@ -216,9 +295,115 @@ struct ProfileEditorSheet: View {
                 try await appState.updateProfile(payload)
                 dismiss()
             } catch {
-                errorMessage = error.localizedDescription
+                if let apiError = error as? APIError,
+                   let usernameError = apiError.fieldErrors["username"] {
+                    usernameState = .unavailable(usernameError)
+                    errorMessage = usernameError
+                    isUsernameFocused = true
+                } else {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
+    }
+
+    private func checkUsername() async {
+        let value = UsernameRules.normalize(username)
+        guard UsernameRules.validationMessage(value) == nil else {
+            usernameState = value.isEmpty ? .idle : .unavailable(UsernameRules.validationMessage(value) ?? "Некорректный username")
+            return
+        }
+        usernameState = .checking
+        do {
+            try await Task.sleep(for: .milliseconds(400))
+            let result = try await appState.usernameAvailability(value)
+            guard !Task.isCancelled else { return }
+            usernameState = result.available
+                ? .available
+                : .unavailable(result.message ?? "Этот username уже занят")
+        } catch is CancellationError {
+            return
+        } catch {
+            usernameState = .unavailable("Не удалось проверить username. Проверьте подключение")
+        }
+    }
+}
+
+private enum UsernameCheckState: Equatable {
+    case idle
+    case checking
+    case available
+    case unavailable(String)
+
+    var isAvailable: Bool {
+        if case .available = self { return true }
+        return false
+    }
+
+    var message: String? {
+        switch self {
+        case .idle: return nil
+        case .checking: return "Проверяем доступность…"
+        case .available: return "Username свободен"
+        case .unavailable(let message): return message
+        }
+    }
+}
+
+private struct UsernameInput: View {
+    @Binding var username: String
+    @FocusState.Binding var isFocused: Bool
+    let state: UsernameCheckState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text("Username")
+                .font(.subheadline.weight(.medium))
+            HStack(spacing: AppSpacing.xs) {
+                Text("@")
+                    .foregroundStyle(AppColors.textSecondary)
+                    .accessibilityHidden(true)
+                TextField("username", text: $username)
+                    .textContentType(.username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($isFocused)
+                    .onChange(of: username) { _, value in
+                        var normalized = value.lowercased()
+                        if normalized.hasPrefix("@") { normalized.removeFirst() }
+                        if normalized != username { username = normalized }
+                    }
+                switch state {
+                case .checking:
+                    ProgressView().controlSize(.small)
+                case .available:
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(AppColors.success)
+                        .accessibilityLabel("Username свободен")
+                case .unavailable:
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(AppColors.error)
+                        .accessibilityLabel("Username недоступен")
+                case .idle:
+                    EmptyView()
+                }
+            }
+            .padding(.horizontal, AppSpacing.md)
+            .frame(minHeight: 54)
+            .liquidGlassField(
+                isInvalid: ifCaseUnavailable(state),
+                isFocused: isFocused
+            )
+            Text(state.message ?? "5–32 символа: латинские буквы, цифры и знак подчёркивания")
+                .font(AppTypography.caption)
+                .foregroundStyle(ifCaseUnavailable(state) ? AppColors.error : AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func ifCaseUnavailable(_ state: UsernameCheckState) -> Bool {
+        if case .unavailable = state { return true }
+        return false
     }
 }
 

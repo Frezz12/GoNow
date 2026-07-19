@@ -55,7 +55,7 @@ cargo sqlx migrate revert
 
 ## iOS
 
-Откройте существующий [GoNow.xcodeproj](/Users/nikolay/Documents/code/gonow/apps/ios/GoNow/GoNow.xcodeproj) в Xcode и выберите Simulator. В Debug используется `http://127.0.0.1:8080/api/v1`; ATS-разрешение на HTTP задано только для Debug. Для физического iPhone измените `GoNowAPIBaseURL` в Debug configuration на локальный IP Mac (например, `http://192.168.1.20:8080/api/v1`) и убедитесь, что телефон и Mac в одной сети. Для Release задан HTTPS URL-заглушка, который необходимо заменить на production API до публикации.
+Откройте существующий [GoNow.xcodeproj](/Users/nikolay/Documents/code/gonow/apps/ios/GoNow/GoNow.xcodeproj) в Xcode. Адрес backend задаётся одной строкой `GONOW_API_BASE_URL=...` в [API.env](/Users/nikolay/Documents/code/gonow/apps/ios/GoNow/GoNow/API.env); по умолчанию это `http://127.0.0.1:8080/api/v1`, поэтому iOS Simulator работает с локальным backend без дополнительных изменений. Для запуска на физическом iPhone укажите в этой строке LAN-адрес Mac (например, `http://192.168.1.10:8080/api/v1`), подключите устройства к одной Wi‑Fi сети и запускайте backend с `APP_HOST=0.0.0.0`. Перед публикацией замените ту же строку на production HTTPS API. В `API.env` нельзя добавлять секреты: файл попадает внутрь приложения.
 
 ## Проверки
 

@@ -286,7 +286,7 @@ struct AppBadge: View {
 
 enum AppTab: Int, CaseIterable, Identifiable, Hashable {
     case map
-    case tasks
+    case activities
     case chat
     case profile
 
@@ -295,7 +295,7 @@ enum AppTab: Int, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .map: L10n.string("tab.map")
-        case .tasks: L10n.string("tab.tasks")
+        case .activities: L10n.string("tab.activities")
         case .chat: L10n.string("tab.chat")
         case .profile: L10n.string("tab.profile")
         }
@@ -304,7 +304,7 @@ enum AppTab: Int, CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .map: "map.fill"
-        case .tasks: "checklist"
+        case .activities: "figure.run.circle.fill"
         case .chat: "message.fill"
         case .profile: "person.crop.circle.fill"
         }

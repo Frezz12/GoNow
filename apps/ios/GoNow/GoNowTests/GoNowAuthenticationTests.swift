@@ -17,7 +17,7 @@ final class GoNowAuthenticationTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let success = """
-        {"data":{"id":"00000000-0000-0000-0000-000000000001","email":"user@example.com","displayName":"Николай","emailVerified":false,"createdAt":"2026-07-16T12:00:00Z"}}
+        {"data":{"id":"00000000-0000-0000-0000-000000000001","email":"user@example.com","displayName":"Николай","username":"nikolay_26","emailVerified":false,"createdAt":"2026-07-16T12:00:00Z"}}
         """
         let user = try decoder.decode(APIEnvelope<CurrentUser>.self, from: Data(success.utf8)).data
         XCTAssertEqual(user.email, "user@example.com")
@@ -47,6 +47,29 @@ final class GoNowAuthenticationTests: XCTestCase {
         )).invalidatesSession)
         XCTAssertFalse(APIError.transport("offline").invalidatesSession)
         XCTAssertFalse(APIError.invalidResponse.invalidatesSession)
+    }
+
+    func testUsernameNormalizationAndValidation() {
+        XCTAssertEqual(UsernameRules.normalize(" @Nikolay_26 "), "nikolay_26")
+        XCTAssertNil(UsernameRules.validationMessage("nikolay_26"))
+        XCTAssertNotNil(UsernameRules.validationMessage("26nikolay"))
+        XCTAssertNotNil(UsernameRules.validationMessage("николай"))
+        XCTAssertNotNil(UsernameRules.validationMessage("admin"))
+    }
+
+    func testRegistrationPayloadContainsChosenUsername() throws {
+        let payload = RegisterPayload(
+            email: "user@example.com",
+            password: "StrongPassword123",
+            displayName: "Николай",
+            username: "nikolay_26",
+            device: DevicePayload(deviceId: "test", deviceName: "iPhone", platform: "ios")
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as? [String: Any]
+        )
+        XCTAssertEqual(object["username"] as? String, "nikolay_26")
+        XCTAssertFalse((object["username"] as? String)?.hasPrefix("user_") ?? true)
     }
 }
 

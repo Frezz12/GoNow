@@ -43,6 +43,34 @@ struct SettingsView: View {
                     }
 
                     GlassCard {
+                        NavigationLink {
+                            PrivacySettingsView()
+                        } label: {
+                            HStack(spacing: AppSpacing.md) {
+                                Image(systemName: "hand.raised.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(AppColors.accentPrimary)
+                                    .frame(width: AppLayout.minimumTouchTarget, height: AppLayout.minimumTouchTarget)
+                                VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                                    Text("Конфиденциальность")
+                                        .font(AppTypography.sectionTitle)
+                                        .foregroundStyle(AppColors.textPrimary)
+                                    Text("Кто может писать и приглашать вас")
+                                        .font(AppTypography.caption)
+                                        .foregroundStyle(AppColors.textSecondary)
+                                }
+                                Spacer(minLength: AppSpacing.sm)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(AppColors.textMuted)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(AppPressButtonStyle())
+                        .accessibilityLabel("Конфиденциальность")
+                    }
+
+                    GlassCard {
                         VStack(alignment: .leading, spacing: AppSpacing.sm) {
                             Label("settings.weather.title", systemImage: "cloud.sun.fill")
                                 .font(AppTypography.sectionTitle)

@@ -1,3 +1,4 @@
+import CoreLocation
 import XCTest
 @testable import GoNow
 
@@ -77,12 +78,17 @@ final class ActivityMapTests: XCTestCase {
         XCTAssertEqual(properties.activityID, "activity-1")
         XCTAssertEqual(properties.category, "sport")
         XCTAssertTrue(properties.isSelected)
-        XCTAssertEqual(properties.markerImage, "gonow-map-point-selected")
+        XCTAssertEqual(properties.markerImage, "gonow-map-pin-sport-selected")
     }
 
     func testAllCategoriesHaveStableMarkerSymbols() {
-        XCTAssertEqual(ActivityCategory.allCases.count, 9)
-        XCTAssertTrue(ActivityCategory.allCases.allSatisfy { !$0.rawValue.isEmpty && !$0.symbol.isEmpty })
+        XCTAssertEqual(ActivityCategory.allCases.count, 11)
+        XCTAssertTrue(ActivityCategory.allCases.allSatisfy {
+            !$0.rawValue.isEmpty
+                && !$0.symbol.isEmpty
+                && $0.markerImageName.hasPrefix("gonow-map-pin-")
+        })
+        XCTAssertEqual(Set(ActivityCategory.allCases.map(\.markerImageName)).count, ActivityCategory.allCases.count)
     }
 
     func testCacheReturnsPageForContainedViewportAndMatchingFilters() async {
@@ -104,5 +110,36 @@ final class ActivityMapTests: XCTestCase {
         let camera = PersistedMapCamera(center: .moscow, zoom: 12, bearing: 15, pitch: 30)
         store.save(camera)
         XCTAssertEqual(store.load(), camera)
+    }
+
+    @MainActor
+    func testActivityListCalculatesDistanceAndSortsNearestFirst() {
+        let origin = CLLocationCoordinate2D(latitude: 55.7558, longitude: 37.6173)
+        let farther = mapActivity(id: "farther", latitude: 55.8058, longitude: 37.6173)
+        let nearer = mapActivity(id: "nearer", latitude: 55.7658, longitude: 37.6173)
+
+        let items = ActivitiesListViewModel.makeItems(
+            activities: [farther, nearer],
+            userCoordinate: origin
+        )
+
+        XCTAssertEqual(items.map(\.id), ["nearer", "farther"])
+        XCTAssertNotNil(items[0].distanceMeters)
+        XCTAssertLessThan(items[0].distanceMeters ?? .greatestFiniteMagnitude, items[1].distanceMeters ?? 0)
+    }
+
+    private func mapActivity(id: String, latitude: Double, longitude: Double) -> MapActivity {
+        MapActivity(
+            id: id,
+            title: id,
+            category: .walking,
+            coordinate: MapCoordinate(latitude: latitude, longitude: longitude),
+            startsAt: Date(timeIntervalSince1970: 1_800_000_000),
+            participantCount: 1,
+            participantLimit: nil,
+            distanceMeters: nil,
+            imageURL: nil,
+            isJoined: false
+        )
     }
 }

@@ -1,18 +1,23 @@
 import CoreLocation
+import Combine
 import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var pushNotifications: PushNotificationCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var activityMapModel: ActivityMapViewModel
     @StateObject private var location = DeviceLocationProvider()
+    private let mapActivityRepository: any MapActivityRepository
     @State private var isCreateTaskPresented = false
+    @State private var isNotificationsPresented = false
     @State private var isProfileRequiredPresented = false
     @State private var isProfileSetupPresented = false
     @State private var selectedTab: AppTab = .map
     @State private var isMapSearchActive = false
 
     init(activityRepository: any MapActivityRepository) {
+        mapActivityRepository = activityRepository
         _activityMapModel = StateObject(wrappedValue: ActivityMapViewModel(repository: activityRepository))
     }
 
@@ -24,17 +29,24 @@ struct MainTabView: View {
                 MapTabView(
                     isSearchActive: $isMapSearchActive,
                     model: activityMapModel,
-                    location: location
-                ) { selectedTab = .profile }
+                    location: location,
+                    activityRepository: appState.activityRepository,
+                    onProfileTap: { selectedTab = .profile },
+                    onNotificationsTap: { isNotificationsPresented = true }
+                )
                     .tabItem { Label(AppTab.map.title, systemImage: AppTab.map.symbol) }
                     .tag(AppTab.map)
-                TasksTabView()
-                    .tabItem { Label(AppTab.tasks.title, systemImage: AppTab.tasks.symbol) }
-                    .tag(AppTab.tasks)
+                ActivitiesTabView(
+                    mapRepository: mapActivityRepository,
+                    detailRepository: appState.activityRepository,
+                    location: location
+                )
+                    .tabItem { Label(AppTab.activities.title, systemImage: AppTab.activities.symbol) }
+                    .tag(AppTab.activities)
                 ChatTabView()
                     .tabItem { Label(AppTab.chat.title, systemImage: AppTab.chat.symbol) }
                     .tag(AppTab.chat)
-                ProfileTabView()
+                ProfileTabView(onNotificationsTap: { isNotificationsPresented = true })
                     .tabItem { Label(AppTab.profile.title, systemImage: AppTab.profile.symbol) }
                     .tag(AppTab.profile)
             }
@@ -73,6 +85,23 @@ struct MainTabView: View {
             }
         }
         .tint(AppColors.accentPrimary)
+        .task {
+            appState.startNotificationUpdates()
+            await appState.reloadNotificationCount()
+            await pushNotifications.requestAuthorizationIfNeeded()
+            if let token = pushNotifications.deviceToken {
+                await appState.registerPushToken(token)
+            }
+            if pushNotifications.pendingDestination != nil {
+                isNotificationsPresented = true
+            }
+        }
+        .onReceive(pushNotifications.$deviceToken.compactMap { $0 }) { token in
+            Task { await appState.registerPushToken(token) }
+        }
+        .onChange(of: pushNotifications.pendingDestination) { _, destination in
+            if destination != nil { isNotificationsPresented = true }
+        }
         .onChange(of: selectedTab) { _, tab in
             if tab != .map {
                 isMapSearchActive = false
@@ -80,7 +109,12 @@ struct MainTabView: View {
             }
         }
         .sheet(isPresented: $isCreateTaskPresented) {
-            CreateActivitySheet(model: activityMapModel, location: location)
+            ActivityCreationFlow(repository: appState.activityRepository, location: location) { _ in
+                activityMapModel.reload()
+            }
+        }
+        .sheet(isPresented: $isNotificationsPresented) {
+            NotificationsView()
         }
         .sheet(isPresented: $isProfileSetupPresented) {
             if let user = appState.currentUser {
@@ -164,157 +198,5 @@ private struct MapCreateTaskButton: View {
         .buttonStyle(AppPressButtonStyle())
         .accessibilityLabel("task.create.accessibility")
         .accessibilityHint("task.create.hint")
-    }
-}
-
-private struct CreateActivitySheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject var model: ActivityMapViewModel
-    @ObservedObject var location: DeviceLocationProvider
-    @State private var title = ""
-    @State private var category: ActivityCategory = .other
-    @FocusState private var isTitleFocused: Bool
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                AuthBackdrop()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                    Text("task.create.title")
-                        .font(.title.bold())
-                    Text("task.create.description")
-                        .font(.subheadline)
-                        .foregroundStyle(AppColors.textSecondary)
-
-                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                        Text("task.create.name.label")
-                            .font(.subheadline.weight(.medium))
-                        TextField("task.create.name.placeholder", text: $title)
-                            .focused($isTitleFocused)
-                            .padding(.horizontal, AppSpacing.md)
-                            .frame(minHeight: 54)
-                            .liquidGlassField(isInvalid: false, isFocused: isTitleFocused)
-                    }
-
-                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                        Text("activity.create.category.label")
-                            .font(.subheadline.weight(.medium))
-                        Picker("activity.create.category.label", selection: $category) {
-                            ForEach(ActivityCategory.allCases) { category in
-                                Label(L10n.string(category.titleKey), systemImage: category.symbol)
-                                    .tag(category)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
-                        .padding(.horizontal, AppSpacing.md)
-                        .glassSurface(.regular, cornerRadius: AppRadius.control)
-                    }
-
-                    locationRow
-
-                    Button {
-                        Task {
-                            guard let coordinate = location.coordinate.map(MapCoordinate.init) else {
-                                location.requestCurrentLocation()
-                                return
-                            }
-                            if await model.createActivity(title: title, category: category, coordinate: coordinate) {
-                                dismiss()
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: AppSpacing.sm) {
-                            if model.isCreating { ProgressView().tint(AppColors.textOnAccent) }
-                            Text("task.create.action")
-                        }
-                    }
-                    .buttonStyle(GradientPrimaryButtonStyle())
-                    .disabled(
-                        title.trimmingCharacters(in: .whitespacesAndNewlines).count < 2
-                            || location.coordinate == nil
-                            || model.isCreating
-                    )
-
-                    if let error = model.creationError {
-                        Text(error)
-                            .font(AppTypography.caption)
-                            .foregroundStyle(AppColors.error)
-                            .accessibilityLabel(error)
-                    }
-                    }
-                    .padding(AppSpacing.xl)
-                }
-            }
-            .navigationTitle("task.create.action")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("common.close") { dismiss() }
-                        .foregroundStyle(AppColors.accentPrimary)
-                }
-            }
-        }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-        .task {
-            model.clearCreationError()
-            if location.authorizationStatus == .authorizedWhenInUse || location.authorizationStatus == .authorizedAlways {
-                location.requestCurrentLocation()
-            }
-        }
-    }
-
-    private var locationRow: some View {
-        HStack(spacing: AppSpacing.sm) {
-            Image(systemName: location.coordinate == nil ? "location" : "location.fill")
-                .foregroundStyle(location.coordinate == nil ? AppColors.textSecondary : AppColors.accentPrimary)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("activity.create.location.label")
-                    .font(AppTypography.captionStrong)
-                Text(locationStatusKey)
-                    .font(AppTypography.caption)
-                    .foregroundStyle(AppColors.textSecondary)
-            }
-            Spacer()
-            if location.coordinate == nil {
-                Button(locationActionKey) {
-                    if location.authorizationStatus == .denied || location.authorizationStatus == .restricted {
-                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                        UIApplication.shared.open(url)
-                    } else {
-                        location.requestCurrentLocation()
-                    }
-                }
-                    .font(AppTypography.captionStrong)
-                    .foregroundStyle(AppColors.accentPrimary)
-                    .frame(minHeight: AppLayout.minimumTouchTarget)
-            } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(AppColors.success)
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(.horizontal, AppSpacing.md)
-        .frame(minHeight: 64)
-        .glassSurface(.regular, cornerRadius: AppRadius.control)
-    }
-
-    private var locationStatusKey: LocalizedStringKey {
-        if location.coordinate != nil { return "activity.create.location.ready" }
-        if location.isRequesting { return "activity.create.location.loading" }
-        if location.authorizationStatus == .denied || location.authorizationStatus == .restricted {
-            return "activity.create.location.denied"
-        }
-        return "activity.create.location.required"
-    }
-
-    private var locationActionKey: LocalizedStringKey {
-        if location.authorizationStatus == .denied || location.authorizationStatus == .restricted {
-            return "map.location.permission.settings"
-        }
-        return "activity.create.location.action"
     }
 }

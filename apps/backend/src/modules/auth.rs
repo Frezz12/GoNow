@@ -18,7 +18,7 @@ use crate::{
         generate_refresh_token, hash_password, issue_access_token, refresh_token_hash,
         verify_password,
     },
-    modules::users::{UserResponse, UserRow},
+    modules::users::{UserResponse, UserRow, normalized_username, username_validation_message},
     shared::{errors::AppError, response::ApiResponse},
 };
 
@@ -36,6 +36,7 @@ pub struct RegisterRequest {
     pub email: String,
     pub password: String,
     pub display_name: String,
+    pub username: String,
     pub device: DeviceRequest,
 }
 
@@ -110,6 +111,7 @@ struct LoginRow {
     email: String,
     password_hash: String,
     display_name: String,
+    username: String,
     status: String,
     email_verified: bool,
     birth_date: Option<chrono::NaiveDate>,
@@ -117,6 +119,9 @@ struct LoginRow {
     occupation: Option<String>,
     bio: Option<String>,
     interests: Vec<String>,
+    languages: Vec<String>,
+    availability: Option<String>,
+    preferred_group_size: Option<String>,
     rating: f64,
     relationship_status: Option<String>,
     location_label: Option<String>,
@@ -133,12 +138,16 @@ impl From<LoginRow> for UserResponse {
             id: value.id,
             email: value.email,
             display_name: value.display_name,
+            username: value.username,
             email_verified: value.email_verified,
             birth_date: value.birth_date,
             city: value.city,
             occupation: value.occupation,
             bio: value.bio,
             interests: value.interests,
+            languages: value.languages,
+            availability: value.availability,
+            preferred_group_size: value.preferred_group_size,
             rating: value.rating,
             relationship_status: value.relationship_status,
             location_label: value.location_label,
@@ -393,6 +402,7 @@ pub async fn register(
     Json(request): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<ApiResponse<RegistrationData>>), AppError> {
     let email = normalized_email(&request.email);
+    let username = normalized_username(&request.username);
     if let Some(error) = validation_error(
         &email,
         &request.password,
@@ -402,6 +412,11 @@ pub async fn register(
     ) {
         return Err(error);
     }
+    if let Some(message) = username_validation_message(&username) {
+        return Err(AppError::validation(
+            serde_json::json!({"username": message}),
+        ));
+    }
     enforce_rate_limit(
         &state,
         format!("ratelimit:register:{}", client_ip(&headers)),
@@ -409,7 +424,7 @@ pub async fn register(
     )
     .await?;
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
-    let existing: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE")
+    let existing: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, username, status, email_verified, birth_date, city, occupation, bio, interests, languages, availability, preferred_group_size, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE")
         .bind(&email)
         .fetch_optional(&mut *tx)
         .await
@@ -424,19 +439,26 @@ pub async fn register(
             });
         }
         let password_hash = hash_password(&request.password)?;
-        let user = sqlx::query_as::<_, UserRow>("UPDATE users SET password_hash = $2, display_name = $3, updated_at = NOW() WHERE id = $1 RETURNING id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at")
+        let user = sqlx::query_as::<_, UserRow>("UPDATE users SET password_hash = $2, display_name = $3, username = $4, updated_at = NOW() WHERE id = $1 RETURNING id, email, display_name, username, status, email_verified, birth_date, city, occupation, bio, interests, languages, availability, preferred_group_size, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at")
             .bind(user.id)
             .bind(password_hash)
             .bind(request.display_name.trim())
+            .bind(&username)
             .fetch_one(&mut *tx)
             .await
-            .map_err(AppError::internal)?;
+            .map_err(registration_write_error)?;
         (user, StatusCode::OK)
     } else {
         let password_hash = hash_password(&request.password)?;
-        let user = sqlx::query_as::<_, UserRow>("INSERT INTO users (id, email, password_hash, display_name) VALUES ($1, $2, $3, $4) RETURNING id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at")
-            .bind(Uuid::new_v4()).bind(&email).bind(password_hash).bind(request.display_name.trim())
-            .fetch_one(&mut *tx).await.map_err(|error| if is_unique_violation(&error) { AppError { status: StatusCode::CONFLICT, code: "EMAIL_ALREADY_EXISTS", message: "Пользователь с таким email уже зарегистрирован".into(), fields: Some(serde_json::json!({"email":"Этот email уже используется"})) } } else { AppError::internal(error) })?;
+        let user = sqlx::query_as::<_, UserRow>("INSERT INTO users (id, email, password_hash, display_name, username) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, display_name, username, status, email_verified, birth_date, city, occupation, bio, interests, languages, availability, preferred_group_size, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at")
+            .bind(Uuid::new_v4())
+            .bind(&email)
+            .bind(password_hash)
+            .bind(request.display_name.trim())
+            .bind(&username)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(registration_write_error)?;
         (user, StatusCode::CREATED)
     };
     let (code, expires_at) = issue_email_code(&mut tx, &state, user.id, "verify_email").await?;
@@ -475,7 +497,7 @@ pub async fn verify_email(
     )
     .await?;
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
-    let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE").bind(&email).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
+    let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, username, status, email_verified, birth_date, city, occupation, bio, interests, languages, availability, preferred_group_size, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE").bind(&email).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
     let mut user =
         user.ok_or_else(|| AppError::unauthorized("INVALID_EMAIL_CODE", "Код недействителен"))?;
     if !consume_email_code(&mut tx, &state, user.id, "verify_email", &request.code).await? {
@@ -520,7 +542,7 @@ pub async fn forgot_password(
 
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
     let user: Option<UserRow> = sqlx::query_as(
-        "SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE",
+        "SELECT id, email, display_name, username, status, email_verified, birth_date, city, occupation, bio, interests, languages, availability, preferred_group_size, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
@@ -576,7 +598,7 @@ pub async fn reset_password(
 
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
     let user: Option<UserRow> = sqlx::query_as(
-        "SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE",
+        "SELECT id, email, display_name, username, status, email_verified, birth_date, city, occupation, bio, interests, languages, availability, preferred_group_size, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1 FOR UPDATE",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
@@ -643,7 +665,7 @@ pub async fn login(
         state.config.rate_limit_login_max,
     )
     .await?;
-    let user: Option<LoginRow> = sqlx::query_as("SELECT id, email, password_hash, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1").bind(&email).fetch_optional(&state.db).await.map_err(AppError::internal)?;
+    let user: Option<LoginRow> = sqlx::query_as("SELECT id, email, password_hash, display_name, username, status, email_verified, birth_date, city, occupation, bio, interests, languages, availability, preferred_group_size, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE email = $1").bind(&email).fetch_optional(&state.db).await.map_err(AppError::internal)?;
     let user = user.ok_or_else(invalid_credentials)?;
     if !verify_password(&request.password, &user.password_hash) {
         return Err(invalid_credentials());
@@ -714,7 +736,7 @@ pub async fn refresh(
             "Срок действия сессии истёк",
         ));
     }
-    let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, status, email_verified, birth_date, city, occupation, bio, interests, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE id = $1").bind(session.user_id).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
+    let user: Option<UserRow> = sqlx::query_as("SELECT id, email, display_name, username, status, email_verified, birth_date, city, occupation, bio, interests, languages, availability, preferred_group_size, rating, relationship_status, location_label, latitude, longitude, show_distance, created_at FROM users WHERE id = $1").bind(session.user_id).fetch_optional(&mut *tx).await.map_err(AppError::internal)?;
     let user = user.ok_or_else(|| {
         AppError::unauthorized("INVALID_REFRESH_TOKEN", "Недействительная сессия")
     })?;
@@ -759,8 +781,34 @@ pub async fn logout(
 fn invalid_credentials() -> AppError {
     AppError::unauthorized("INVALID_CREDENTIALS", "Неверный email или пароль")
 }
-fn is_unique_violation(error: &sqlx::Error) -> bool {
-    matches!(error, sqlx::Error::Database(database_error) if database_error.code().as_deref() == Some("23505"))
+fn registration_write_error(error: sqlx::Error) -> AppError {
+    let is_username_conflict = error
+        .as_database_error()
+        .and_then(|database_error| database_error.constraint())
+        == Some("users_username_unique_idx");
+    let is_unique_violation = matches!(
+        &error,
+        sqlx::Error::Database(database_error)
+            if database_error.code().as_deref() == Some("23505")
+    );
+
+    if is_username_conflict {
+        AppError {
+            status: StatusCode::CONFLICT,
+            code: "USERNAME_TAKEN",
+            message: "Этот username уже занят".into(),
+            fields: Some(serde_json::json!({"username":"Этот username уже занят"})),
+        }
+    } else if is_unique_violation {
+        AppError {
+            status: StatusCode::CONFLICT,
+            code: "EMAIL_ALREADY_EXISTS",
+            message: "Пользователь с таким email уже зарегистрирован".into(),
+            fields: Some(serde_json::json!({"email":"Этот email уже используется"})),
+        }
+    } else {
+        AppError::internal(error)
+    }
 }
 
 #[cfg(test)]

@@ -59,6 +59,30 @@ impl AppError {
             fields: None,
         }
     }
+    pub fn not_found(code: &'static str, message: &str) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code,
+            message: message.into(),
+            fields: None,
+        }
+    }
+    pub fn forbidden(code: &'static str, message: &str) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code,
+            message: message.into(),
+            fields: None,
+        }
+    }
+    pub fn conflict(code: &'static str, message: &str) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code,
+            message: message.into(),
+            fields: None,
+        }
+    }
     pub fn internal(error: impl std::fmt::Display) -> Self {
         error!(error = %error, "unhandled application error");
         Self {

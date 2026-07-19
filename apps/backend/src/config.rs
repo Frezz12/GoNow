@@ -1,6 +1,7 @@
 use std::env;
 
 use axum::http::HeaderValue;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 #[derive(Clone)]
 pub struct Config {
@@ -9,6 +10,11 @@ pub struct Config {
     pub port: u16,
     pub database_url: String,
     pub redis_url: String,
+    pub redis_media_cache_ttl_seconds: u64,
+    pub redis_media_cache_max_bytes: usize,
+    pub redis_profile_cache_ttl_seconds: u64,
+    pub redis_weather_cache_ttl_seconds: u64,
+    pub redis_user_status_cache_ttl_seconds: u64,
     pub jwt_access_secret: String,
     pub jwt_refresh_secret: String,
     pub jwt_access_ttl_seconds: i64,
@@ -23,6 +29,7 @@ pub struct Config {
     pub resend_from_email: Option<String>,
     pub email_code_ttl_seconds: i64,
     pub object_storage: Option<ObjectStorageConfig>,
+    pub apns: Option<ApnsConfig>,
 }
 
 /// Generic S3-compatible configuration. Cloudflare R2 is only one possible
@@ -36,6 +43,15 @@ pub struct ObjectStorageConfig {
     pub region: String,
     pub key_prefix: String,
     pub force_path_style: bool,
+}
+
+#[derive(Clone)]
+pub struct ApnsConfig {
+    pub team_id: String,
+    pub key_id: String,
+    pub private_key_pem: String,
+    pub bundle_id: String,
+    pub environment: String,
 }
 
 impl Config {
@@ -98,6 +114,11 @@ impl Config {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let object_storage = ObjectStorageConfig::from_environment()?;
+        let apns = ApnsConfig::from_environment()?;
+        let redis_media_cache_max_bytes = parse_positive("REDIS_MEDIA_CACHE_MAX_BYTES", "4194304")?;
+        if redis_media_cache_max_bytes > 16 * 1024 * 1024 {
+            return Err("REDIS_MEDIA_CACHE_MAX_BYTES must not exceed 16777216".into());
+        }
         Ok(Self {
             app_env: optional("APP_ENV", "development"),
             host: optional("APP_HOST", "0.0.0.0"),
@@ -106,6 +127,21 @@ impl Config {
                 .map_err(|_| "APP_PORT must be a number".to_string())?,
             database_url: required("DATABASE_URL")?,
             redis_url: required("REDIS_URL")?,
+            redis_media_cache_ttl_seconds: parse_positive("REDIS_MEDIA_CACHE_TTL_SECONDS", "3600")?
+                as u64,
+            redis_media_cache_max_bytes: redis_media_cache_max_bytes as usize,
+            redis_profile_cache_ttl_seconds: parse_positive(
+                "REDIS_PROFILE_CACHE_TTL_SECONDS",
+                "60",
+            )? as u64,
+            redis_weather_cache_ttl_seconds: parse_positive(
+                "REDIS_WEATHER_CACHE_TTL_SECONDS",
+                "300",
+            )? as u64,
+            redis_user_status_cache_ttl_seconds: parse_positive(
+                "REDIS_USER_STATUS_CACHE_TTL_SECONDS",
+                "30",
+            )? as u64,
             jwt_access_secret,
             jwt_refresh_secret,
             jwt_access_ttl_seconds,
@@ -124,7 +160,57 @@ impl Config {
                 .filter(|value| !value.is_empty()),
             email_code_ttl_seconds,
             object_storage,
+            apns,
         })
+    }
+}
+
+impl ApnsConfig {
+    fn from_environment() -> Result<Option<Self>, String> {
+        const KEYS: [&str; 4] = [
+            "APNS_TEAM_ID",
+            "APNS_KEY_ID",
+            "APNS_PRIVATE_KEY_BASE64",
+            "APNS_BUNDLE_ID",
+        ];
+        let values = KEYS.map(|key| env::var(key).unwrap_or_default().trim().to_owned());
+        let supplied = values.iter().filter(|value| !value.is_empty()).count();
+        if supplied == 0 {
+            return Ok(None);
+        }
+        if supplied != KEYS.len() {
+            let missing = KEYS
+                .iter()
+                .zip(values.iter())
+                .filter_map(|(key, value)| value.is_empty().then_some(*key))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "APNs is partially configured; missing required variable(s): {missing}"
+            ));
+        }
+        let private_key = STANDARD
+            .decode(&values[2])
+            .map_err(|_| "APNS_PRIVATE_KEY_BASE64 must be valid base64".to_string())?;
+        let private_key_pem = String::from_utf8(private_key)
+            .map_err(|_| "APNS_PRIVATE_KEY_BASE64 must contain a UTF-8 .p8 key".to_string())?;
+        if !private_key_pem.contains("BEGIN PRIVATE KEY") {
+            return Err("APNS_PRIVATE_KEY_BASE64 must contain an Apple .p8 private key".into());
+        }
+        let environment = env::var("APNS_ENVIRONMENT")
+            .unwrap_or_else(|_| "sandbox".into())
+            .trim()
+            .to_owned();
+        if !matches!(environment.as_str(), "sandbox" | "production") {
+            return Err("APNS_ENVIRONMENT must be sandbox or production".into());
+        }
+        Ok(Some(Self {
+            team_id: values[0].clone(),
+            key_id: values[1].clone(),
+            private_key_pem,
+            bundle_id: values[3].clone(),
+            environment,
+        }))
     }
 }
 

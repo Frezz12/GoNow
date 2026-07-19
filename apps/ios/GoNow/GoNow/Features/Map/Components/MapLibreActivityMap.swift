@@ -6,16 +6,11 @@ import UIKit
 
 enum ActivityMapLayerID {
     static let source = "gonow-activities"
-    static let clusterHalo = "gonow-cluster-halo"
-    static let clusters = "gonow-clusters"
-    static let clusterCount = "gonow-cluster-count"
     static let selectedHalo = "gonow-selected-activity-halo"
     static let activities = "gonow-activity-markers"
     static let userSource = "gonow-user-location"
     static let userHalo = "gonow-user-location-halo"
     static let userPoint = "gonow-user-location-point"
-    static let markerImage = "gonow-map-point"
-    static let selectedMarkerImage = "gonow-map-point-selected"
 }
 
 struct MapLibreCameraCommand: Equatable {
@@ -120,8 +115,9 @@ struct MapLibreActivityMap: UIViewRepresentable {
         weak var mapView: MLNMapView?
         var lastCameraCommandID: UUID?
         var lastSelectedActivityID: String?
-        private var activityFingerprint = ""
-        private var userFingerprint = ""
+        private var renderedActivities: [MapActivity] = []
+        private var renderedSelectedActivityID: String?
+        private var renderedUserCoordinate: MapCoordinate?
         private var isStyleReady = false
         private var hasRenderedMap = false
 
@@ -132,8 +128,9 @@ struct MapLibreActivityMap: UIViewRepresentable {
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             configure(style: style)
             isStyleReady = true
-            activityFingerprint = ""
-            userFingerprint = ""
+            renderedActivities = []
+            renderedSelectedActivityID = nil
+            renderedUserCoordinate = nil
             updateSources(in: mapView)
             notifyViewportChanged(mapView)
         }
@@ -161,31 +158,17 @@ struct MapLibreActivityMap: UIViewRepresentable {
 
         func updateSources(in mapView: MLNMapView) {
             guard isStyleReady, let style = mapView.style else { return }
-            let nextActivityFingerprint = parent.activities
-                .map {
-                    [
-                        $0.id,
-                        String($0.coordinate.latitude),
-                        String($0.coordinate.longitude),
-                        $0.title,
-                        $0.category.rawValue,
-                        String($0.participantCount),
-                        $0.participantLimit.map(String.init) ?? "none",
-                        String($0.isFull),
-                    ].joined(separator: ":")
-                }
-                .joined(separator: "|") + "#\(parent.selectedActivityID ?? "")"
-            if activityFingerprint != nextActivityFingerprint,
+            if renderedActivities != parent.activities || renderedSelectedActivityID != parent.selectedActivityID,
                let source = style.source(withIdentifier: ActivityMapLayerID.source) as? MLNShapeSource {
                 source.shape = activityShape()
-                activityFingerprint = nextActivityFingerprint
+                renderedActivities = parent.activities
+                renderedSelectedActivityID = parent.selectedActivityID
             }
 
-            let nextUserFingerprint = parent.userCoordinate.map { "\($0.latitude):\($0.longitude)" } ?? "none"
-            if userFingerprint != nextUserFingerprint,
+            if renderedUserCoordinate != parent.userCoordinate,
                let source = style.source(withIdentifier: ActivityMapLayerID.userSource) as? MLNShapeSource {
                 source.shape = parent.userCoordinate.map(userLocationShape)
-                userFingerprint = nextUserFingerprint
+                renderedUserCoordinate = parent.userCoordinate
             }
         }
 
@@ -198,19 +181,9 @@ struct MapLibreActivityMap: UIViewRepresentable {
         @objc func didTapMap(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended, let mapView else { return }
             let point = recognizer.location(in: mapView)
-            let layerIDs: Set<String> = [
-                ActivityMapLayerID.clusters,
-                ActivityMapLayerID.clusterCount,
-                ActivityMapLayerID.activities,
-            ]
+            let layerIDs: Set<String> = [ActivityMapLayerID.activities]
             let hitArea = CGRect(x: point.x - 22, y: point.y - 22, width: 44, height: 44)
             let features = mapView.visibleFeatures(in: hitArea, styleLayerIdentifiers: layerIDs)
-            if let cluster = features.compactMap({ $0 as? MLNPointFeatureCluster }).first,
-               let source = mapView.style?.source(withIdentifier: ActivityMapLayerID.source) as? MLNShapeSource {
-                let zoom = source.zoomLevel(forExpanding: cluster)
-                mapView.setCenter(cluster.coordinate, zoomLevel: zoom, animated: !parent.reduceMotion)
-                return
-            }
             if let activityID = features
                 .compactMap({ $0.attribute(forKey: "activity_id") as? String })
                 .first {
@@ -228,67 +201,54 @@ struct MapLibreActivityMap: UIViewRepresentable {
         }
 
         private func configure(style: MLNStyle) {
-            style.setImage(markerImage(color: UIColor.systemPink, pointSize: 36), forName: ActivityMapLayerID.markerImage)
-            style.setImage(markerImage(color: UIColor.systemPurple, pointSize: 42), forName: ActivityMapLayerID.selectedMarkerImage)
+            for category in ActivityCategory.allCases {
+                let color = markerColor(for: category)
+                style.setImage(
+                    markerImage(color: color, pointSize: 38),
+                    forName: category.markerImageName(isSelected: false)
+                )
+                style.setImage(
+                    markerImage(color: color, pointSize: 46),
+                    forName: category.markerImageName(isSelected: true)
+                )
+            }
 
             let activitySource = MLNShapeSource(
                 identifier: ActivityMapLayerID.source,
                 shape: activityShape(),
-                options: [
-                    .clustered: true,
-                    .clusterRadius: 58,
-                    .maximumZoomLevelForClustering: 14,
-                ]
+                options: nil
             )
             style.addSource(activitySource)
 
-            let clusterHalo = MLNCircleStyleLayer(identifier: ActivityMapLayerID.clusterHalo, source: activitySource)
-            clusterHalo.predicate = NSPredicate(format: "cluster == YES")
-            clusterHalo.circleColor = NSExpression(forConstantValue: UIColor.systemPink.withAlphaComponent(0.16))
-            clusterHalo.circleRadius = NSExpression(forConstantValue: 30)
-            clusterHalo.circleBlur = NSExpression(forConstantValue: 0.4)
-            style.addLayer(clusterHalo)
-
-            let clusters = MLNCircleStyleLayer(identifier: ActivityMapLayerID.clusters, source: activitySource)
-            clusters.predicate = NSPredicate(format: "cluster == YES")
-            clusters.circleColor = NSExpression(forConstantValue: UIColor.systemPink)
-            clusters.circleRadius = NSExpression(forConstantValue: 22)
-            clusters.circleStrokeColor = NSExpression(forConstantValue: UIColor.white.withAlphaComponent(0.9))
-            clusters.circleStrokeWidth = NSExpression(forConstantValue: 1.5)
-            style.addLayer(clusters)
-
-            let count = MLNSymbolStyleLayer(identifier: ActivityMapLayerID.clusterCount, source: activitySource)
-            count.predicate = NSPredicate(format: "cluster == YES")
-            count.text = NSExpression(forKeyPath: "point_count_abbreviated")
-            count.textColor = NSExpression(forConstantValue: UIColor.white)
-            count.textFontSize = NSExpression(forConstantValue: 12)
-            count.textAllowsOverlap = NSExpression(forConstantValue: true)
-            style.addLayer(count)
-
             let selectedHalo = MLNCircleStyleLayer(identifier: ActivityMapLayerID.selectedHalo, source: activitySource)
-            selectedHalo.predicate = NSPredicate(format: "cluster != YES AND is_selected == YES")
+            selectedHalo.predicate = NSPredicate(format: "is_selected == YES")
             selectedHalo.circleColor = NSExpression(forConstantValue: UIColor.systemPink.withAlphaComponent(0.2))
             selectedHalo.circleRadius = NSExpression(forConstantValue: 27)
             selectedHalo.circleBlur = NSExpression(forConstantValue: 0.45)
+            selectedHalo.minimumZoomLevel = 0
+            selectedHalo.maximumZoomLevel = 24
             style.addLayer(selectedHalo)
 
             let markers = MLNSymbolStyleLayer(identifier: ActivityMapLayerID.activities, source: activitySource)
-            markers.predicate = NSPredicate(format: "cluster != YES")
             markers.iconImageName = NSExpression(forKeyPath: "marker_image")
             markers.iconAllowsOverlap = NSExpression(forConstantValue: true)
+            markers.iconIgnoresPlacement = NSExpression(forConstantValue: true)
+            markers.iconAnchor = NSExpression(forConstantValue: "bottom")
             markers.iconScale = NSExpression(forConstantValue: 1)
+            markers.minimumZoomLevel = 0
+            markers.maximumZoomLevel = 24
             style.addLayer(markers)
 
             let userSource = MLNShapeSource(identifier: ActivityMapLayerID.userSource, shape: nil, options: nil)
             style.addSource(userSource)
             let userHalo = MLNCircleStyleLayer(identifier: ActivityMapLayerID.userHalo, source: userSource)
-            userHalo.circleColor = NSExpression(forConstantValue: UIColor.systemBlue.withAlphaComponent(0.18))
-            userHalo.circleRadius = NSExpression(forConstantValue: 18)
+            userHalo.circleColor = NSExpression(forConstantValue: UIColor.systemRed.withAlphaComponent(0.2))
+            userHalo.circleRadius = NSExpression(forConstantValue: 20)
             userHalo.circleBlur = NSExpression(forConstantValue: 0.45)
             style.addLayer(userHalo)
             let userPoint = MLNCircleStyleLayer(identifier: ActivityMapLayerID.userPoint, source: userSource)
-            userPoint.circleColor = NSExpression(forConstantValue: UIColor.systemBlue)
-            userPoint.circleRadius = NSExpression(forConstantValue: 7)
+            userPoint.circleColor = NSExpression(forConstantValue: UIColor.systemRed)
+            userPoint.circleRadius = NSExpression(forConstantValue: 8)
             userPoint.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
             userPoint.circleStrokeWidth = NSExpression(forConstantValue: 3)
             style.addLayer(userPoint)
@@ -325,9 +285,72 @@ struct MapLibreActivityMap: UIViewRepresentable {
         }
 
         private func markerImage(color: UIColor, pointSize: CGFloat) -> UIImage {
-            let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
-            return UIImage(systemName: "mappin.circle.fill", withConfiguration: configuration)?
-                .withTintColor(color, renderingMode: .alwaysOriginal) ?? UIImage()
+            let size = CGSize(width: pointSize, height: pointSize * 1.28)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            return renderer.image { context in
+                let width = size.width
+                let height = size.height
+                let centerX = width / 2
+                let tip = CGPoint(x: centerX, y: height - 1)
+                let pin = UIBezierPath()
+                pin.move(to: tip)
+                pin.addCurve(
+                    to: CGPoint(x: 1, y: height * 0.38),
+                    controlPoint1: CGPoint(x: centerX - width * 0.12, y: height * 0.76),
+                    controlPoint2: CGPoint(x: 1, y: height * 0.61)
+                )
+                pin.addCurve(
+                    to: CGPoint(x: centerX, y: 1),
+                    controlPoint1: CGPoint(x: 1, y: height * 0.14),
+                    controlPoint2: CGPoint(x: width * 0.24, y: 1)
+                )
+                pin.addCurve(
+                    to: CGPoint(x: width - 1, y: height * 0.38),
+                    controlPoint1: CGPoint(x: width * 0.76, y: 1),
+                    controlPoint2: CGPoint(x: width - 1, y: height * 0.14)
+                )
+                pin.addCurve(
+                    to: tip,
+                    controlPoint1: CGPoint(x: width - 1, y: height * 0.61),
+                    controlPoint2: CGPoint(x: centerX + width * 0.12, y: height * 0.76)
+                )
+                pin.close()
+
+                context.cgContext.setShadow(
+                    offset: CGSize(width: 0, height: 2),
+                    blur: 3,
+                    color: UIColor.black.withAlphaComponent(0.2).cgColor
+                )
+                color.setFill()
+                pin.fill()
+                context.cgContext.setShadow(offset: .zero, blur: 0, color: nil)
+
+                let centerRadius = width * 0.13
+                let center = CGRect(
+                    x: centerX - centerRadius,
+                    y: height * 0.31 - centerRadius,
+                    width: centerRadius * 2,
+                    height: centerRadius * 2
+                )
+                UIColor.white.setFill()
+                UIBezierPath(ovalIn: center).fill()
+            }.withRenderingMode(.alwaysOriginal)
+        }
+
+        private func markerColor(for category: ActivityCategory) -> UIColor {
+            switch category {
+            case .walking: .systemGreen
+            case .sport: .systemRed
+            case .travel: .systemBlue
+            case .music: .systemPurple
+            case .games: .systemIndigo
+            case .food: .systemOrange
+            case .help: .systemTeal
+            case .education: .systemBrown
+            case .animals: .systemMint
+            case .event: .systemPink
+            case .other: .systemGray
+            }
         }
 
         private func notifyViewportChanged(_ mapView: MLNMapView) {

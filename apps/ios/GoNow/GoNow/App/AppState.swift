@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UserNotifications
 
 enum AuthenticationPhase: Equatable {
     case launching
@@ -17,31 +18,50 @@ final class AppState: ObservableObject {
     @Published private(set) var avatarImageData = Data()
     @Published private(set) var isOptionalProfileNoticeDismissed = false
     @Published private(set) var isProfileSetupStarted = false
+    @Published private(set) var unreadNotificationCount = 0
 
     private let repository: AuthRepository
     private let profileMediaRepository: ProfileMediaRepository
+    private let deviceProvider: DeviceIdentityProvider
+    private var notificationEventsTask: Task<Void, Never>?
+    let socialRepository: SocialRepository
+    let notificationRepository: NotificationRepository
     let activityMapRepository: any MapActivityRepository
+    let activityRepository: any ActivityRepository
 
     init(
         repository: AuthRepository,
         profileMediaRepository: ProfileMediaRepository,
-        activityMapRepository: any MapActivityRepository = MockMapActivityRepository()
+        deviceProvider: DeviceIdentityProvider,
+        socialRepository: SocialRepository,
+        notificationRepository: NotificationRepository,
+        activityMapRepository: any MapActivityRepository = MockMapActivityRepository(),
+        activityRepository: any ActivityRepository = MockActivityRepository()
     ) {
         self.repository = repository
         self.profileMediaRepository = profileMediaRepository
+        self.deviceProvider = deviceProvider
+        self.socialRepository = socialRepository
+        self.notificationRepository = notificationRepository
         self.activityMapRepository = activityMapRepository
+        self.activityRepository = activityRepository
     }
 
     convenience init() {
         let keychain = KeychainStore()
         let api = APIClient(baseURL: AppConfiguration.apiBaseURL, tokenStore: keychain)
+        let deviceProvider = DeviceIdentityProvider(keychain: keychain)
         self.init(
-            repository: AuthRepository(api: api, tokenStore: keychain, deviceProvider: DeviceIdentityProvider(keychain: keychain)),
+            repository: AuthRepository(api: api, tokenStore: keychain, deviceProvider: deviceProvider),
             profileMediaRepository: ProfileMediaRepository(api: api),
+            deviceProvider: deviceProvider,
+            socialRepository: SocialRepository(api: api),
+            notificationRepository: NotificationRepository(api: api),
             activityMapRepository: CachedMapActivityRepository(
                 upstream: MapActivityService(apiClient: api),
                 cache: MapActivityPageCache()
-            )
+            ),
+            activityRepository: NetworkActivityRepository(apiClient: api)
         )
     }
 
@@ -68,7 +88,11 @@ final class AppState: ObservableObject {
             isOptionalProfileNoticeDismissed = false
             restoreProfileSetupState()
             phase = currentUser == nil ? .unauthenticated : .authenticated
-            if currentUser != nil { await reloadProfileMedia() }
+            if currentUser != nil {
+                await reloadProfileMedia()
+            } else {
+                await profileMediaRepository.clearCache()
+            }
         } catch is CancellationError {
             return
         } catch let error as APIError {
@@ -77,6 +101,7 @@ final class AppState: ObservableObject {
             isProfileSetupStarted = false
             if error.invalidatesSession {
                 repository.clearSession()
+                await profileMediaRepository.clearCache()
                 sessionError = nil
                 phase = .unauthenticated
             } else {
@@ -85,6 +110,7 @@ final class AppState: ObservableObject {
             }
         } catch {
             repository.clearSession()
+            await profileMediaRepository.clearCache()
             currentUser = nil
             isOptionalProfileNoticeDismissed = false
             isProfileSetupStarted = false
@@ -103,8 +129,8 @@ final class AppState: ObservableObject {
         await reloadProfileMedia()
     }
 
-    func register(name: String, email: String, password: String) async throws -> RegistrationData {
-        try await repository.register(name: name, email: email, password: password)
+    func register(name: String, username: String, email: String, password: String) async throws -> RegistrationData {
+        try await repository.register(name: name, username: username, email: email, password: password)
     }
 
     func verifyEmail(email: String, code: String) async throws {
@@ -136,7 +162,7 @@ final class AppState: ObservableObject {
         defer { isRefreshingUser = false }
         do { currentUser = try await repository.currentUser(); sessionError = nil }
         catch {
-            if !invalidateSessionIfNeeded(error) { sessionError = error.localizedDescription }
+            if !(await invalidateSessionIfNeeded(error)) { sessionError = error.localizedDescription }
         }
     }
 
@@ -148,9 +174,13 @@ final class AppState: ObservableObject {
             }
             sessionError = nil
         } catch {
-            _ = invalidateSessionIfNeeded(error)
+            _ = await invalidateSessionIfNeeded(error)
             throw error
         }
+    }
+
+    func usernameAvailability(_ username: String, authenticated: Bool = true) async throws -> UsernameAvailability {
+        try await repository.usernameAvailability(username, authenticated: authenticated)
     }
 
     func dismissOptionalProfileNotice() {
@@ -180,7 +210,7 @@ final class AppState: ObservableObject {
                 Data()
             }
         } catch {
-            if invalidateSessionIfNeeded(error) { return }
+            if await invalidateSessionIfNeeded(error) { return }
             // A missing storage configuration must not end the authenticated session.
             profilePhotos = ProfilePhotos(avatar: nil, photos: [])
             avatarImageData = Data()
@@ -192,7 +222,7 @@ final class AppState: ObservableObject {
             _ = try await profileMediaRepository.uploadAvatar(imageData)
             await reloadProfileMedia()
         } catch {
-            if !invalidateSessionIfNeeded(error) { sessionError = error.localizedDescription }
+            if !(await invalidateSessionIfNeeded(error)) { sessionError = error.localizedDescription }
             throw error
         }
     }
@@ -202,7 +232,7 @@ final class AppState: ObservableObject {
             _ = try await profileMediaRepository.uploadPhoto(imageData)
             await reloadProfileMedia()
         } catch {
-            if !invalidateSessionIfNeeded(error) { sessionError = error.localizedDescription }
+            if !(await invalidateSessionIfNeeded(error)) { sessionError = error.localizedDescription }
             throw error
         }
     }
@@ -211,7 +241,7 @@ final class AppState: ObservableObject {
         do {
             return try await profileMediaRepository.content(for: photo)
         } catch {
-            _ = invalidateSessionIfNeeded(error)
+            _ = await invalidateSessionIfNeeded(error)
             return Data()
         }
     }
@@ -221,7 +251,29 @@ final class AppState: ObservableObject {
             try await profileMediaRepository.delete(photo)
             await reloadProfileMedia()
         } catch {
-            if !invalidateSessionIfNeeded(error) { sessionError = error.localizedDescription }
+            if !(await invalidateSessionIfNeeded(error)) { sessionError = error.localizedDescription }
+            throw error
+        }
+    }
+
+    func updateProfilePhotoDescription(_ description: String?, for photo: ProfilePhoto) async throws {
+        do {
+            let updated = try await profileMediaRepository.updateDescription(description, for: photo)
+            profilePhotos = profilePhotos.replacing(updated)
+        } catch {
+            if !(await invalidateSessionIfNeeded(error)) { sessionError = error.localizedDescription }
+            throw error
+        }
+    }
+
+    func setProfilePhotoLiked(_ liked: Bool, for photo: ProfilePhoto) async throws {
+        do {
+            let engagement = try await profileMediaRepository.setLiked(liked, for: photo)
+            profilePhotos = profilePhotos.replacing(
+                photo.updating(likeCount: engagement.likeCount, isLiked: engagement.isLiked)
+            )
+        } catch {
+            if !(await invalidateSessionIfNeeded(error)) { sessionError = error.localizedDescription }
             throw error
         }
     }
@@ -230,8 +282,79 @@ final class AppState: ObservableObject {
         sessionError = nil
     }
 
+    func startNotificationUpdates() {
+        guard phase == .authenticated, notificationEventsTask == nil else { return }
+        notificationEventsTask = Task { [weak self, notificationRepository] in
+            var retryDelay = Duration.seconds(1)
+            while !Task.isCancelled {
+                do {
+                    let events = try await notificationRepository.liveEvents()
+                    for try await event in events {
+                        guard !Task.isCancelled else { return }
+                        retryDelay = .seconds(1)
+                        self?.applyUnreadNotificationCount(event.unreadCount)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch { }
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(for: retryDelay)
+                retryDelay = min(retryDelay * 2, .seconds(60))
+                if self?.phase != .authenticated {
+                    return
+                }
+            }
+        }
+    }
+
+    func reloadNotificationCount() async {
+        guard phase == .authenticated else { return }
+        do {
+            applyUnreadNotificationCount(try await notificationRepository.unreadCount())
+        } catch {
+            _ = await invalidateSessionIfNeeded(error)
+        }
+    }
+
+    func applyUnreadNotificationCount(_ count: Int) {
+        let normalized = max(0, count)
+        guard unreadNotificationCount != normalized else { return }
+        unreadNotificationCount = normalized
+        let badge = unreadNotificationCount
+        Task { try? await UNUserNotificationCenter.current().setBadgeCount(badge) }
+    }
+
+    func registerPushToken(_ token: String) async {
+        guard phase == .authenticated,
+              let bundle = Bundle.main.bundleIdentifier,
+              let device = try? deviceProvider.payload() else { return }
+#if DEBUG
+        let environment = "sandbox"
+#else
+        let environment = "production"
+#endif
+        do {
+            try await notificationRepository.registerDevice(
+                PushDeviceRegistration(
+                    deviceId: device.deviceId,
+                    token: token,
+                    environment: environment,
+                    appBundle: bundle,
+                    locale: Locale.current.identifier
+                )
+            )
+        } catch {
+            _ = await invalidateSessionIfNeeded(error)
+        }
+    }
+
     func logout() async {
+        if let device = try? deviceProvider.payload() {
+            try? await notificationRepository.unregisterDevice(device.deviceId)
+        }
+        stopNotificationUpdates()
         await repository.logout()
+        await profileMediaRepository.clearCache()
         currentUser = nil
         profilePhotos = ProfilePhotos(avatar: nil, photos: [])
         avatarImageData = Data()
@@ -239,6 +362,13 @@ final class AppState: ObservableObject {
         isProfileSetupStarted = false
         sessionError = nil
         phase = .unauthenticated
+    }
+
+    private func stopNotificationUpdates() {
+        notificationEventsTask?.cancel()
+        notificationEventsTask = nil
+        Task { await notificationRepository.closeLiveEvents() }
+        applyUnreadNotificationCount(0)
     }
 
     private func restoreProfileSetupState() {
@@ -260,9 +390,10 @@ final class AppState: ObservableObject {
     }
 
     @discardableResult
-    private func invalidateSessionIfNeeded(_ error: Error) -> Bool {
+    private func invalidateSessionIfNeeded(_ error: Error) async -> Bool {
         guard let apiError = error as? APIError, apiError.invalidatesSession else { return false }
         repository.clearSession()
+        await profileMediaRepository.clearCache()
         currentUser = nil
         profilePhotos = ProfilePhotos(avatar: nil, photos: [])
         avatarImageData = Data()
@@ -270,6 +401,7 @@ final class AppState: ObservableObject {
         isProfileSetupStarted = false
         sessionError = nil
         phase = .unauthenticated
+        stopNotificationUpdates()
         return true
     }
 }

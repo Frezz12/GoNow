@@ -126,11 +126,11 @@ struct MapWeatherWidget: View {
     /// The device coordinate is collected by Core Location and sent only to the GoNow API.
     /// A saved profile point keeps the weather widget useful after location access is denied.
     private var weatherLatitude: Double? {
-        deviceLocation.coordinate?.latitude ?? profileLatitude
+        deviceLocation.weatherCoordinate?.latitude ?? profileLatitude
     }
 
     private var weatherLongitude: Double? {
-        deviceLocation.coordinate?.longitude ?? profileLongitude
+        deviceLocation.weatherCoordinate?.longitude ?? profileLongitude
     }
 
     private var cityName: String {

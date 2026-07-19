@@ -83,6 +83,7 @@ private struct LoginView: View {
 private struct RegisterView: View {
     @EnvironmentObject private var appState: AppState
     @State private var name = ""
+    @State private var username = ""
     @State private var email = ""
     @State private var password = ""
     @State private var confirmation = ""
@@ -90,7 +91,9 @@ private struct RegisterView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var fieldErrors: [String: String] = [:]
+    @State private var usernameState = RegistrationUsernameState.idle
     @FocusState private var isNameFocused: Bool
+    @FocusState private var isUsernameFocused: Bool
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isPasswordFocused: Bool
     @FocusState private var isConfirmationFocused: Bool
@@ -103,6 +106,10 @@ private struct RegisterView: View {
                 brandHeader(title: L10n.string("auth.register.hero.title"), subtitle: L10n.string("auth.register.hero.subtitle"))
                 VStack(spacing: AppSpacing.md) {
                     AuthTextField(title: L10n.string("auth.field.name"), text: $name, error: fieldErrors["displayName"], isFocused: $isNameFocused, contentType: .name, capitalization: .words)
+                    AuthTextField(title: "Username", text: $username, error: fieldErrors["username"], isFocused: $isUsernameFocused, contentType: .username, keyboard: .asciiCapable, capitalization: .never)
+                    if fieldErrors["username"] == nil {
+                        RegistrationUsernameStatus(state: usernameState)
+                    }
                     AuthTextField(title: L10n.string("auth.field.email"), text: $email, error: fieldErrors["email"], isFocused: $isEmailFocused, contentType: .emailAddress, keyboard: .emailAddress, capitalization: .never)
                     PasswordField(title: L10n.string("auth.field.password"), text: $password, isVisible: $isPasswordVisible, error: fieldErrors["password"], isFocused: $isPasswordFocused, contentType: .newPassword)
                     PasswordField(title: L10n.string("auth.field.password_confirm"), text: $confirmation, isVisible: $isPasswordVisible, error: fieldErrors["confirmation"], isFocused: $isConfirmationFocused, contentType: .newPassword)
@@ -130,11 +137,27 @@ private struct RegisterView: View {
         .sheet(isPresented: Binding(get: { verificationEmail != nil }, set: { if !$0 { verificationEmail = nil } })) {
             if let verificationEmail { EmailVerificationSheet(email: verificationEmail) }
         }
+        .onChange(of: username) { _, value in
+            let normalized = UsernameRules.normalize(value)
+            if normalized != value { username = normalized }
+            fieldErrors["username"] = nil
+            usernameState = .idle
+        }
+        .onChange(of: isUsernameFocused) { _, isFocused in
+            guard !isFocused, !username.isEmpty else { return }
+            fieldErrors["username"] = UsernameRules.validationMessage(UsernameRules.normalize(username))
+        }
+        .task(id: username) {
+            await checkUsernameAvailability()
+        }
     }
 
     private func submit() {
         var errors: [String: String] = [:]
+        let normalizedUsername = UsernameRules.normalize(username)
         if name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 { errors["displayName"] = L10n.string("validation.name.too_short") }
+        if let error = UsernameRules.validationMessage(normalizedUsername) { errors["username"] = error }
+        if case .unavailable(let message) = usernameState { errors["username"] = message }
         if let error = AuthValidation.email(email) { errors["email"] = error }
         if let error = AuthValidation.password(password) { errors["password"] = error }
         if let error = AuthValidation.matchingPasswords(password, confirmation) { errors["confirmation"] = error }
@@ -144,9 +167,79 @@ private struct RegisterView: View {
         errorMessage = nil
         Task {
             defer { isLoading = false }
-            do { verificationEmail = try await appState.register(name: name.trimmingCharacters(in: .whitespacesAndNewlines), email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password).email }
+            do { verificationEmail = try await appState.register(name: name.trimmingCharacters(in: .whitespacesAndNewlines), username: normalizedUsername, email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password).email }
             catch let error as APIError { fieldErrors = error.fieldErrors; errorMessage = error.localizedDescription }
             catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    private func checkUsernameAvailability() async {
+        let normalized = UsernameRules.normalize(username)
+        guard normalized.count >= 5 else {
+            usernameState = .idle
+            return
+        }
+        if let message = UsernameRules.validationMessage(normalized) {
+            usernameState = .unavailable(message)
+            return
+        }
+
+        usernameState = .checking
+        do {
+            try await Task.sleep(for: .milliseconds(450))
+            let result = try await appState.usernameAvailability(normalized, authenticated: false)
+            guard !Task.isCancelled, result.username == normalized else { return }
+            usernameState = result.available
+                ? .available
+                : .unavailable(result.message ?? "Этот username уже занят")
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            usernameState = .idle
+        }
+    }
+}
+
+private enum RegistrationUsernameState: Equatable {
+    case idle
+    case checking
+    case available
+    case unavailable(String)
+}
+
+private struct RegistrationUsernameStatus: View {
+    let state: RegistrationUsernameState
+
+    var body: some View {
+        HStack(spacing: AppSpacing.xs) {
+            switch state {
+            case .idle:
+                Image(systemName: "info.circle")
+                Text("5–32 символа: латинские буквы, цифры и _; без @")
+            case .checking:
+                ProgressView().controlSize(.small)
+                Text("Проверяем доступность…")
+            case .available:
+                Image(systemName: "checkmark.circle.fill")
+                Text("Username свободен")
+            case .unavailable(let message):
+                Image(systemName: "exclamationmark.circle.fill")
+                Text(message)
+            }
+        }
+        .font(AppTypography.caption)
+        .foregroundStyle(statusColor)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var statusColor: Color {
+        switch state {
+        case .available: AppColors.success
+        case .unavailable: AppColors.error
+        case .idle, .checking: AppColors.textSecondary
         }
     }
 }
@@ -402,7 +495,7 @@ private struct AuthTextField: View {
                 .textContentType(contentType)
                 .keyboardType(keyboard)
                 .textInputAutocapitalization(capitalization)
-                .autocorrectionDisabled(keyboard == .emailAddress)
+                .autocorrectionDisabled(keyboard == .emailAddress || keyboard == .asciiCapable)
                 .focused($isFocused)
                 .padding(.horizontal, AppSpacing.md).frame(minHeight: 54)
                 .liquidGlassField(isInvalid: error != nil, isFocused: isFocused)

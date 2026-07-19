@@ -274,11 +274,15 @@ struct ProfileSetupFlow: View {
         isSaving = true
         let payload = UpdateProfilePayload(
             displayName: user.displayName,
+            username: user.username,
             birthDate: ProfileDate.format(birthDate),
             city: city.nilIfEmpty,
             occupation: occupation.nilIfEmpty,
             bio: bio.nilIfEmpty,
             interests: parsedInterests,
+            languages: user.languages ?? [],
+            availability: user.availability,
+            preferredGroupSize: user.preferredGroupSize,
             relationshipStatus: relationshipStatus.nilIfEmpty,
             locationLabel: locationLabel.nilIfEmpty,
             latitude: latitude,

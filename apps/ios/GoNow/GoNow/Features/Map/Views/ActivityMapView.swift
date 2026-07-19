@@ -5,13 +5,14 @@ import UIKit
 struct ActivityMapView: View {
     @ObservedObject var model: ActivityMapViewModel
     @ObservedObject var location: DeviceLocationProvider
+    let activityRepository: any ActivityRepository
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var styleLoader = MapStyleLoader()
     @State private var cameraCommand: MapLibreCameraCommand?
     @State private var shouldCenterWhenLocationArrives = false
-    @State private var hasRequestedInitialLocationCenter = false
     @State private var isLocationExplanationPresented = false
     @State private var mapLoadState: MapLibreLoadState = .loading
+    @State private var detailActivityID: UUID?
 
     var body: some View {
         ZStack {
@@ -21,7 +22,11 @@ struct ActivityMapView: View {
             attribution
 
             if let selected = model.selectedActivity {
-                ActivityMapCard(activity: selected) { model.selectedActivity = nil }
+                ActivityMapCard(activity: selected) {
+                    detailActivityID = UUID(uuidString: selected.id)
+                } onClose: {
+                    model.selectedActivity = nil
+                }
                     .padding(.horizontal, AppLayout.horizontalInset)
                     .padding(.bottom, 118)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -42,6 +47,14 @@ struct ActivityMapView: View {
         }
         .sheet(isPresented: $model.isFilterPresented) {
             MapFilterSheet(filters: model.filters, onApply: model.applyFilters)
+        }
+        .sheet(isPresented: Binding(
+            get: { detailActivityID != nil },
+            set: { if !$0 { detailActivityID = nil } }
+        )) {
+            if let detailActivityID {
+                ActivityDetailView(activityID: detailActivityID, repository: activityRepository)
+            }
         }
         .task {
             styleLoader.load()
@@ -205,7 +218,7 @@ struct ActivityMapView: View {
                 .padding(AppSpacing.md)
                 .glassSurface(.floating, cornerRadius: AppRadius.control)
         case .empty:
-            MapStatusPill(symbol: "mappin.slash", textKey: "map.empty")
+            EmptyView()
         case .failed(let message, let keepsExistingData):
             if keepsExistingData {
                 VStack {
@@ -217,10 +230,7 @@ struct ActivityMapView: View {
                 MapStatusPill(symbol: "wifi.exclamationmark", text: message, retry: model.reload)
             }
         case .loaded:
-            if !model.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               model.visibleActivities.isEmpty {
-                MapStatusPill(symbol: "magnifyingglass", textKey: "map.empty")
-            }
+            EmptyView()
         }
     }
 
@@ -231,13 +241,11 @@ struct ActivityMapView: View {
     }
 
     private func startLocationForMap() {
-        guard !hasRequestedInitialLocationCenter else { return }
-        hasRequestedInitialLocationCenter = true
         shouldCenterWhenLocationArrives = true
         if let coordinate = location.coordinate.map(MapCoordinate.init) {
             centerMap(on: coordinate)
         }
-        location.requestCurrentLocation()
+        location.startMonitoringLocation()
     }
 
     private func requestLocationAccessOrCenter() {
@@ -249,7 +257,7 @@ struct ActivityMapView: View {
             if let coordinate = location.coordinate.map(MapCoordinate.init) {
                 centerMap(on: coordinate)
             }
-            location.requestCurrentLocation()
+            location.startMonitoringLocation()
         @unknown default:
             isLocationExplanationPresented = true
         }
@@ -285,14 +293,8 @@ private extension View {
 
 private struct MapStatusPill: View {
     let symbol: String
-    var textKey: LocalizedStringKey?
-    var text: String?
+    let text: String
     var retry: (() -> Void)?
-
-    init(symbol: String, textKey: LocalizedStringKey) {
-        self.symbol = symbol
-        self.textKey = textKey
-    }
 
     init(symbol: String, text: String, retry: (() -> Void)? = nil) {
         self.symbol = symbol
@@ -303,8 +305,7 @@ private struct MapStatusPill: View {
     var body: some View {
         HStack(spacing: AppSpacing.sm) {
             Image(systemName: symbol)
-            if let textKey { Text(textKey) }
-            if let text { Text(text) }
+            Text(text)
             if let retry {
                 Button("common.retry", action: retry)
                     .fontWeight(.semibold)

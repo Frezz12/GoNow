@@ -5,11 +5,13 @@ import Foundation
 
 struct ProfileTabView: View {
     @EnvironmentObject private var appState: AppState
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    let onNotificationsTap: () -> Void
     @State private var isEditing = false
     @State private var isSettingsPresented = false
     @State private var isGalleryExpanded = false
     @State private var isProfileSetupPresented = false
+    @State private var isSocialHubPresented = false
+    @State private var isAboutExpanded = false
 
     var body: some View {
         NavigationStack {
@@ -40,83 +42,51 @@ struct ProfileTabView: View {
                                 Text(user.displayName)
                                     .font(AppTypography.screenTitle)
                                     .foregroundStyle(AppColors.textPrimary)
-                                if let birthDateAndAgeText = user.birthDateAndAgeText {
-                                    Label(birthDateAndAgeText, systemImage: "calendar")
-                                        .font(AppTypography.body)
-                                        .foregroundStyle(AppColors.textSecondary)
-                                }
-                                if let locationText = user.profileLocationText {
-                                    Label(locationText, systemImage: "mappin.and.ellipse")
-                                        .font(AppTypography.body)
-                                        .foregroundStyle(AppColors.textSecondary)
-                                        .lineLimit(1)
-                                        .accessibilityLabel(L10n.format("profile.location.accessibility %@", locationText))
-                                }
+                                Text("@\(user.username)")
+                                    .font(AppTypography.bodyMedium)
+                                    .foregroundStyle(AppColors.accentPrimary)
+                                    .textSelection(.enabled)
+                                    .accessibilityLabel("Username: \(user.username)")
                             }
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 4)
 
-                        GlassCard {
-                            VStack(alignment: .leading, spacing: AppSpacing.xl) {
-                                VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                    HStack {
-                                        Text("profile.photos.title")
-                                            .font(AppTypography.sectionTitle)
-                                        Spacer(minLength: 8)
-                                        Button {
-                                            withAnimation(accessibilityReduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.84)) {
-                                                isGalleryExpanded.toggle()
-                                            }
-                                        } label: {
-                                            Label(
-                                                isGalleryExpanded ? "profile.photos.collapse" : "profile.photos.show_all",
-                                                systemImage: isGalleryExpanded ? "chevron.up" : "chevron.right"
-                                            )
-                                            .labelStyle(.titleAndIcon)
-                                            .font(AppTypography.captionStrong)
-                                            .foregroundStyle(AppColors.accentPrimary)
-                                            .frame(minHeight: 44)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .accessibilityLabel(isGalleryExpanded ? L10n.string("profile.photos.collapse.accessibility") : L10n.string("profile.photos.show_all.accessibility"))
-                                    }
-                                    ProfilePhotoGallery(isExpanded: $isGalleryExpanded)
-                                }
+                        ProfileAboutDisclosure(user: user, isExpanded: $isAboutExpanded)
 
-                                ProfileDetailsGrid(user: user)
-
-                                if let bio = user.bio?.nonEmpty {
-                                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                                        Label("profile.bio.title", systemImage: "person.text.rectangle")
-                                            .font(AppTypography.captionStrong)
-                                            .foregroundStyle(AppColors.accentPrimary)
-                                        Text(bio)
-                                            .font(AppTypography.body)
-                                            .foregroundStyle(AppColors.textSecondary)
-                                    }
+                        Button { isSocialHubPresented = true } label: {
+                            HStack(spacing: AppSpacing.md) {
+                                Image(systemName: "person.2.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(AppColors.accentPrimary)
+                                    .frame(width: 44, height: 44)
+                                    .background(AppColors.accentPrimary.opacity(0.12), in: Circle())
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("Друзья и приглашения")
+                                        .font(AppTypography.bodyMedium)
+                                        .foregroundStyle(AppColors.textPrimary)
+                                    Text("Найдите людей, ответьте на заявки или позовите встретиться")
+                                        .font(AppTypography.caption)
+                                        .foregroundStyle(AppColors.textSecondary)
+                                        .multilineTextAlignment(.leading)
                                 }
-
-                                if let interests = user.interests, !interests.isEmpty {
-                                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                                        Label("profile.interests.title", systemImage: "tag")
-                                            .font(AppTypography.captionStrong)
-                                            .foregroundStyle(AppColors.accentPrimary)
-                                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], alignment: .leading, spacing: 8) {
-                                            ForEach(interests, id: \.self) { interest in
-                                                Text(interest)
-                                                    .font(AppTypography.badge)
-                                                    .padding(.horizontal, AppSpacing.sm)
-                                                    .padding(.vertical, AppSpacing.xs)
-                                                    .background(AppColors.accentPrimary.opacity(0.12), in: Capsule())
-                                                    .foregroundStyle(AppColors.accentPrimary)
-                                            }
-                                        }
-                                    }
-                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(AppColors.textMuted)
                             }
+                            .padding(AppSpacing.md)
+                            .glassSurface(.regular, cornerRadius: AppRadius.card)
                         }
+                        .buttonStyle(AppPressButtonStyle())
+
+                        Label("Посты", systemImage: "square.grid.2x2.fill")
+                            .font(AppTypography.sectionTitle)
+                            .foregroundStyle(AppColors.textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        ProfilePostsView(isGalleryExpanded: $isGalleryExpanded)
                     }
+                    .frame(maxWidth: .infinity)
                 } else {
                     ProgressView("profile.loading")
                 }
@@ -134,12 +104,16 @@ struct ProfileTabView: View {
                 Text(appState.sessionError ?? "")
             }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    profileNotificationsButton
                     profileSettingsButton
                 }
             }
             .navigationDestination(isPresented: $isSettingsPresented) {
                 SettingsView()
+            }
+            .navigationDestination(isPresented: $isSocialHubPresented) {
+                SocialHubView()
             }
         }
         .sheet(isPresented: $isEditing) {
@@ -152,6 +126,34 @@ struct ProfileTabView: View {
                 ProfileSetupFlow(user: user)
             }
         }
+    }
+
+    private var profileNotificationsButton: some View {
+        Button(action: onNotificationsTap) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: appState.unreadNotificationCount > 0 ? "bell.fill" : "bell")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
+
+                if appState.unreadNotificationCount > 0 {
+                    Text(appState.unreadNotificationCount > 99 ? "99+" : "\(appState.unreadNotificationCount)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .background(AppColors.error, in: Capsule())
+                        .overlay { Capsule().strokeBorder(AppColors.glassHighlight, lineWidth: 1) }
+                        .offset(x: 3, y: 2)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .accessibilityLabel(
+            appState.unreadNotificationCount > 0
+                ? "Уведомления, непрочитанных: \(appState.unreadNotificationCount)"
+                : "Уведомления"
+        )
+        .accessibilityHint("Открывает список уведомлений")
     }
 
     private var profileSettingsButton: some View {
@@ -172,6 +174,118 @@ struct ProfileTabView: View {
     }
 }
 
+private struct ProfileAboutDisclosure: View {
+    let user: CurrentUser
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        GlassCard {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                VStack(alignment: .leading, spacing: AppSpacing.xl) {
+                    Divider().overlay(AppColors.divider)
+                    if !hasProfileInformation {
+                        Label("Информация пока не заполнена", systemImage: "info.circle")
+                            .font(AppTypography.body)
+                            .foregroundStyle(AppColors.textSecondary)
+                    }
+                    profileFacts
+                    ProfileDetailsGrid(user: user)
+                    if let bio = user.bio?.nonEmpty {
+                        profileTextSection(
+                            title: L10n.string("profile.bio.title"),
+                            symbol: "person.text.rectangle",
+                            text: bio
+                        )
+                    }
+                    if let interests = user.interests, !interests.isEmpty {
+                        tagSection(
+                            title: L10n.string("profile.interests.title"),
+                            symbol: "tag",
+                            values: interests,
+                            tint: AppColors.accentPrimary
+                        )
+                    }
+                    if let languages = user.languages, !languages.isEmpty {
+                        tagSection(
+                            title: L10n.string("profile.languages.title"),
+                            symbol: "globe",
+                            values: languages,
+                            tint: AppColors.accentSecondary
+                        )
+                    }
+                }
+                .padding(.top, AppSpacing.sm)
+            } label: {
+                Label(isExpanded ? "Скрыть информацию" : "Информация о себе", systemImage: "person.text.rectangle")
+                    .font(AppTypography.bodyMedium)
+                    .foregroundStyle(AppColors.textPrimary)
+                    .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTouchTarget, alignment: .leading)
+            }
+            .tint(AppColors.accentPrimary)
+            .accessibilityHint(isExpanded ? "Сворачивает данные профиля" : "Показывает данные профиля")
+        }
+    }
+
+    private var hasProfileInformation: Bool {
+        user.birthDateAndAgeText != nil
+            || user.profileLocationText != nil
+            || user.occupation?.nonEmpty != nil
+            || user.relationshipStatus?.nonEmpty != nil
+            || user.availability?.nonEmpty != nil
+            || user.preferredGroupSizeText != nil
+            || user.bio?.nonEmpty != nil
+            || user.interests?.isEmpty == false
+            || user.languages?.isEmpty == false
+    }
+
+    @ViewBuilder
+    private var profileFacts: some View {
+        if user.birthDateAndAgeText != nil || user.profileLocationText != nil {
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                if let birthDateAndAgeText = user.birthDateAndAgeText {
+                    Label(birthDateAndAgeText, systemImage: "calendar")
+                }
+                if let locationText = user.profileLocationText {
+                    Label(locationText, systemImage: "mappin.and.ellipse")
+                        .accessibilityLabel(L10n.format("profile.location.accessibility %@", locationText))
+                }
+            }
+            .font(AppTypography.body)
+            .foregroundStyle(AppColors.textSecondary)
+        }
+    }
+
+    private func profileTextSection(title: String, symbol: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Label(title, systemImage: symbol)
+                .font(AppTypography.captionStrong)
+                .foregroundStyle(AppColors.accentPrimary)
+            Text(text)
+                .font(AppTypography.body)
+                .foregroundStyle(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func tagSection(title: String, symbol: String, values: [String], tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            Label(title, systemImage: symbol)
+                .font(AppTypography.captionStrong)
+                .foregroundStyle(AppColors.accentPrimary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], alignment: .leading, spacing: 8) {
+                ForEach(values, id: \.self) { value in
+                    Text(value)
+                        .font(AppTypography.badge)
+                        .padding(.horizontal, AppSpacing.sm)
+                        .padding(.vertical, AppSpacing.xs)
+                        .background(tint.opacity(0.13), in: Capsule())
+                        .foregroundStyle(AppColors.textPrimary)
+                }
+            }
+        }
+    }
+}
+
 private struct ProfileDetailsGrid: View {
     let user: CurrentUser
 
@@ -179,6 +293,8 @@ private struct ProfileDetailsGrid: View {
         let fields = [
             DetailField(icon: "briefcase.fill", title: L10n.string("profile.occupation.title"), value: user.occupation?.nonEmpty),
             DetailField(icon: "heart.text.square", title: L10n.string("profile.relationship.title"), value: user.relationshipStatus?.nonEmpty),
+            DetailField(icon: "clock.fill", title: L10n.string("profile.availability.title"), value: user.availability?.nonEmpty),
+            DetailField(icon: "person.3.fill", title: L10n.string("profile.group.title"), value: user.preferredGroupSizeText),
         ].filter { $0.value != nil }
 
         if !fields.isEmpty {
@@ -193,7 +309,7 @@ private struct ProfileDetailsGrid: View {
                             .foregroundStyle(AppColors.textSecondary)
                         Text(field.value ?? "")
                             .font(AppTypography.bodyMedium)
-                            .lineLimit(2)
+                            .lineLimit(3)
                     }
                     .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
                     .padding(AppSpacing.sm)
