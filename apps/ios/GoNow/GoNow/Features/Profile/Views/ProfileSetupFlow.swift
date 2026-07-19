@@ -42,6 +42,7 @@ struct ProfileSetupPrompt: View {
 struct ProfileSetupFlow: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let user: CurrentUser
 
     @State private var step = 0
@@ -262,7 +263,7 @@ struct ProfileSetupFlow: View {
     private func advance() {
         errorMessage = nil
         if step < 3 {
-            withAnimation(.easeOut(duration: 0.22)) { step += 1 }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { step += 1 }
             return
         }
 
@@ -273,11 +274,15 @@ struct ProfileSetupFlow: View {
         isSaving = true
         let payload = UpdateProfilePayload(
             displayName: user.displayName,
+            username: user.username,
             birthDate: ProfileDate.format(birthDate),
             city: city.nilIfEmpty,
             occupation: occupation.nilIfEmpty,
             bio: bio.nilIfEmpty,
             interests: parsedInterests,
+            languages: user.languages ?? [],
+            availability: user.availability,
+            preferredGroupSize: user.preferredGroupSize,
             relationshipStatus: relationshipStatus.nilIfEmpty,
             locationLabel: locationLabel.nilIfEmpty,
             latitude: latitude,

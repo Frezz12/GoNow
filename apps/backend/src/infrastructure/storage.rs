@@ -87,6 +87,30 @@ impl S3ObjectStorage {
         )
     }
 
+    pub fn activity_object_key(
+        &self,
+        activity_id: uuid::Uuid,
+        photo_id: uuid::Uuid,
+        extension: &str,
+    ) -> String {
+        format!(
+            "{}/activities/{activity_id}/{photo_id}.{extension}",
+            self.key_prefix
+        )
+    }
+
+    pub fn chat_object_key(
+        &self,
+        conversation_id: uuid::Uuid,
+        message_id: uuid::Uuid,
+        extension: &str,
+    ) -> String {
+        format!(
+            "{}/chats/{conversation_id}/{message_id}.{extension}",
+            self.key_prefix
+        )
+    }
+
     pub async fn put_image(
         &self,
         key: &str,

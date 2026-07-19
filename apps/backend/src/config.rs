@@ -1,5 +1,8 @@
 use std::env;
 
+use axum::http::HeaderValue;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+
 #[derive(Clone)]
 pub struct Config {
     pub app_env: String,
@@ -7,12 +10,17 @@ pub struct Config {
     pub port: u16,
     pub database_url: String,
     pub redis_url: String,
+    pub redis_media_cache_ttl_seconds: u64,
+    pub redis_media_cache_max_bytes: usize,
+    pub redis_profile_cache_ttl_seconds: u64,
+    pub redis_weather_cache_ttl_seconds: u64,
+    pub redis_user_status_cache_ttl_seconds: u64,
     pub jwt_access_secret: String,
     pub jwt_refresh_secret: String,
     pub jwt_access_ttl_seconds: i64,
     pub jwt_refresh_ttl_seconds: i64,
     pub password_min_length: usize,
-    pub cors_allowed_origins: Vec<String>,
+    pub cors_allowed_origins: Vec<HeaderValue>,
     pub rate_limit_register_max: i64,
     pub rate_limit_login_max: i64,
     pub rate_limit_refresh_max: i64,
@@ -21,6 +29,7 @@ pub struct Config {
     pub resend_from_email: Option<String>,
     pub email_code_ttl_seconds: i64,
     pub object_storage: Option<ObjectStorageConfig>,
+    pub apns: Option<ApnsConfig>,
 }
 
 /// Generic S3-compatible configuration. Cloudflare R2 is only one possible
@@ -36,8 +45,18 @@ pub struct ObjectStorageConfig {
     pub force_path_style: bool,
 }
 
+#[derive(Clone)]
+pub struct ApnsConfig {
+    pub team_id: String,
+    pub key_id: String,
+    pub private_key_pem: String,
+    pub bundle_id: String,
+    pub environment: String,
+}
+
 impl Config {
     pub fn from_environment() -> Result<Self, String> {
+        const MAX_DURATION_SECONDS: i64 = 10 * 365 * 24 * 60 * 60;
         let required = |key: &str| {
             env::var(key).map_err(|_| format!("missing required environment variable {key}"))
         };
@@ -48,7 +67,58 @@ impl Config {
                 .parse()
                 .map_err(|_| format!("{key} must be a number"))
         };
+        let parse_positive = |key: &str, fallback: &str| -> Result<i64, String> {
+            let value = parse(key, fallback)?;
+            if value <= 0 {
+                return Err(format!("{key} must be greater than zero"));
+            }
+            Ok(value)
+        };
+
+        let jwt_access_secret = required("JWT_ACCESS_SECRET")?;
+        let jwt_refresh_secret = required("JWT_REFRESH_SECRET")?;
+        if jwt_access_secret.len() < 32 || jwt_refresh_secret.len() < 32 {
+            return Err("JWT secrets must contain at least 32 bytes".into());
+        }
+        if jwt_access_secret == jwt_refresh_secret {
+            return Err("JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different".into());
+        }
+
+        let jwt_access_ttl_seconds = parse_positive("JWT_ACCESS_TTL_SECONDS", "900")?;
+        let jwt_refresh_ttl_seconds = parse_positive("JWT_REFRESH_TTL_SECONDS", "2592000")?;
+        let email_code_ttl_seconds = parse_positive("EMAIL_CODE_TTL_SECONDS", "600")?;
+        if [
+            jwt_access_ttl_seconds,
+            jwt_refresh_ttl_seconds,
+            email_code_ttl_seconds,
+        ]
+        .into_iter()
+        .any(|value| value > MAX_DURATION_SECONDS)
+        {
+            return Err("token and email-code lifetimes must not exceed 10 years".into());
+        }
+
+        let password_min_length = parse_positive("PASSWORD_MIN_LENGTH", "8")?;
+        if !(8..=128).contains(&password_min_length) {
+            return Err("PASSWORD_MIN_LENGTH must be between 8 and 128".into());
+        }
+
+        let cors_allowed_origins = optional("CORS_ALLOWED_ORIGINS", "")
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|origin| {
+                origin
+                    .parse::<HeaderValue>()
+                    .map_err(|_| format!("invalid CORS origin: {origin}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let object_storage = ObjectStorageConfig::from_environment()?;
+        let apns = ApnsConfig::from_environment()?;
+        let redis_media_cache_max_bytes = parse_positive("REDIS_MEDIA_CACHE_MAX_BYTES", "4194304")?;
+        if redis_media_cache_max_bytes > 16 * 1024 * 1024 {
+            return Err("REDIS_MEDIA_CACHE_MAX_BYTES must not exceed 16777216".into());
+        }
         Ok(Self {
             app_env: optional("APP_ENV", "development"),
             host: optional("APP_HOST", "0.0.0.0"),
@@ -57,29 +127,90 @@ impl Config {
                 .map_err(|_| "APP_PORT must be a number".to_string())?,
             database_url: required("DATABASE_URL")?,
             redis_url: required("REDIS_URL")?,
-            jwt_access_secret: required("JWT_ACCESS_SECRET")?,
-            jwt_refresh_secret: required("JWT_REFRESH_SECRET")?,
-            jwt_access_ttl_seconds: parse("JWT_ACCESS_TTL_SECONDS", "900")?,
-            jwt_refresh_ttl_seconds: parse("JWT_REFRESH_TTL_SECONDS", "2592000")?,
-            password_min_length: parse("PASSWORD_MIN_LENGTH", "8")? as usize,
-            cors_allowed_origins: optional("CORS_ALLOWED_ORIGINS", "")
-                .split(',')
-                .filter(|v| !v.is_empty())
-                .map(str::to_owned)
-                .collect(),
-            rate_limit_register_max: parse("RATE_LIMIT_REGISTER_MAX", "5")?,
-            rate_limit_login_max: parse("RATE_LIMIT_LOGIN_MAX", "10")?,
-            rate_limit_refresh_max: parse("RATE_LIMIT_REFRESH_MAX", "30")?,
-            rate_limit_window_seconds: parse("RATE_LIMIT_WINDOW_SECONDS", "900")?,
+            redis_media_cache_ttl_seconds: parse_positive("REDIS_MEDIA_CACHE_TTL_SECONDS", "3600")?
+                as u64,
+            redis_media_cache_max_bytes: redis_media_cache_max_bytes as usize,
+            redis_profile_cache_ttl_seconds: parse_positive(
+                "REDIS_PROFILE_CACHE_TTL_SECONDS",
+                "60",
+            )? as u64,
+            redis_weather_cache_ttl_seconds: parse_positive(
+                "REDIS_WEATHER_CACHE_TTL_SECONDS",
+                "300",
+            )? as u64,
+            redis_user_status_cache_ttl_seconds: parse_positive(
+                "REDIS_USER_STATUS_CACHE_TTL_SECONDS",
+                "30",
+            )? as u64,
+            jwt_access_secret,
+            jwt_refresh_secret,
+            jwt_access_ttl_seconds,
+            jwt_refresh_ttl_seconds,
+            password_min_length: password_min_length as usize,
+            cors_allowed_origins,
+            rate_limit_register_max: parse_positive("RATE_LIMIT_REGISTER_MAX", "5")?,
+            rate_limit_login_max: parse_positive("RATE_LIMIT_LOGIN_MAX", "10")?,
+            rate_limit_refresh_max: parse_positive("RATE_LIMIT_REFRESH_MAX", "30")?,
+            rate_limit_window_seconds: parse_positive("RATE_LIMIT_WINDOW_SECONDS", "900")?,
             resend_api_key: env::var("RESEND_API_KEY")
                 .ok()
                 .filter(|value| !value.is_empty()),
             resend_from_email: env::var("RESEND_FROM_EMAIL")
                 .ok()
                 .filter(|value| !value.is_empty()),
-            email_code_ttl_seconds: parse("EMAIL_CODE_TTL_SECONDS", "600")?,
+            email_code_ttl_seconds,
             object_storage,
+            apns,
         })
+    }
+}
+
+impl ApnsConfig {
+    fn from_environment() -> Result<Option<Self>, String> {
+        const KEYS: [&str; 4] = [
+            "APNS_TEAM_ID",
+            "APNS_KEY_ID",
+            "APNS_PRIVATE_KEY_BASE64",
+            "APNS_BUNDLE_ID",
+        ];
+        let values = KEYS.map(|key| env::var(key).unwrap_or_default().trim().to_owned());
+        let supplied = values.iter().filter(|value| !value.is_empty()).count();
+        if supplied == 0 {
+            return Ok(None);
+        }
+        if supplied != KEYS.len() {
+            let missing = KEYS
+                .iter()
+                .zip(values.iter())
+                .filter_map(|(key, value)| value.is_empty().then_some(*key))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "APNs is partially configured; missing required variable(s): {missing}"
+            ));
+        }
+        let private_key = STANDARD
+            .decode(&values[2])
+            .map_err(|_| "APNS_PRIVATE_KEY_BASE64 must be valid base64".to_string())?;
+        let private_key_pem = String::from_utf8(private_key)
+            .map_err(|_| "APNS_PRIVATE_KEY_BASE64 must contain a UTF-8 .p8 key".to_string())?;
+        if !private_key_pem.contains("BEGIN PRIVATE KEY") {
+            return Err("APNS_PRIVATE_KEY_BASE64 must contain an Apple .p8 private key".into());
+        }
+        let environment = env::var("APNS_ENVIRONMENT")
+            .unwrap_or_else(|_| "sandbox".into())
+            .trim()
+            .to_owned();
+        if !matches!(environment.as_str(), "sandbox" | "production") {
+            return Err("APNS_ENVIRONMENT must be sandbox or production".into());
+        }
+        Ok(Some(Self {
+            team_id: values[0].clone(),
+            key_id: values[1].clone(),
+            private_key_pem,
+            bundle_id: values[3].clone(),
+            environment,
+        }))
     }
 }
 

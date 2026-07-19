@@ -1,29 +1,52 @@
+import CoreLocation
+import Combine
 import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var pushNotifications: PushNotificationCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var activityMapModel: ActivityMapViewModel
+    @StateObject private var location = DeviceLocationProvider()
+    private let mapActivityRepository: any MapActivityRepository
     @State private var isCreateTaskPresented = false
+    @State private var isNotificationsPresented = false
     @State private var isProfileRequiredPresented = false
     @State private var isProfileSetupPresented = false
     @State private var selectedTab: AppTab = .map
     @State private var isMapSearchActive = false
+
+    init(activityRepository: any MapActivityRepository) {
+        mapActivityRepository = activityRepository
+        _activityMapModel = StateObject(wrappedValue: ActivityMapViewModel(repository: activityRepository))
+    }
 
     var body: some View {
         ZStack {
             // The native tab bar renders with the system Liquid Glass treatment on iOS 26.
             // It is more legible and responsive than a custom material imitation.
             TabView(selection: $selectedTab) {
-                MapTabView(isSearchActive: $isMapSearchActive) { selectedTab = .profile }
+                MapTabView(
+                    isSearchActive: $isMapSearchActive,
+                    model: activityMapModel,
+                    location: location,
+                    activityRepository: appState.activityRepository,
+                    onProfileTap: { selectedTab = .profile },
+                    onNotificationsTap: { isNotificationsPresented = true }
+                )
                     .tabItem { Label(AppTab.map.title, systemImage: AppTab.map.symbol) }
                     .tag(AppTab.map)
-                TasksTabView()
-                    .tabItem { Label(AppTab.tasks.title, systemImage: AppTab.tasks.symbol) }
-                    .tag(AppTab.tasks)
+                ActivitiesTabView(
+                    mapRepository: mapActivityRepository,
+                    detailRepository: appState.activityRepository,
+                    location: location
+                )
+                    .tabItem { Label(AppTab.activities.title, systemImage: AppTab.activities.symbol) }
+                    .tag(AppTab.activities)
                 ChatTabView()
                     .tabItem { Label(AppTab.chat.title, systemImage: AppTab.chat.symbol) }
                     .tag(AppTab.chat)
-                ProfileTabView()
+                ProfileTabView(onNotificationsTap: { isNotificationsPresented = true })
                     .tabItem { Label(AppTab.profile.title, systemImage: AppTab.profile.symbol) }
                     .tag(AppTab.profile)
             }
@@ -62,13 +85,36 @@ struct MainTabView: View {
             }
         }
         .tint(AppColors.accentPrimary)
+        .task {
+            appState.startNotificationUpdates()
+            await appState.reloadNotificationCount()
+            await pushNotifications.requestAuthorizationIfNeeded()
+            if let token = pushNotifications.deviceToken {
+                await appState.registerPushToken(token)
+            }
+            if pushNotifications.pendingDestination != nil {
+                isNotificationsPresented = true
+            }
+        }
+        .onReceive(pushNotifications.$deviceToken.compactMap { $0 }) { token in
+            Task { await appState.registerPushToken(token) }
+        }
+        .onChange(of: pushNotifications.pendingDestination) { _, destination in
+            if destination != nil { isNotificationsPresented = true }
+        }
         .onChange(of: selectedTab) { _, tab in
             if tab != .map {
                 isMapSearchActive = false
+                activityMapModel.searchQuery = ""
             }
         }
         .sheet(isPresented: $isCreateTaskPresented) {
-            CreateTaskSheet()
+            ActivityCreationFlow(repository: appState.activityRepository, location: location) { _ in
+                activityMapModel.reload()
+            }
+        }
+        .sheet(isPresented: $isNotificationsPresented) {
+            NotificationsView()
         }
         .sheet(isPresented: $isProfileSetupPresented) {
             if let user = appState.currentUser {
@@ -152,52 +198,5 @@ private struct MapCreateTaskButton: View {
         .buttonStyle(AppPressButtonStyle())
         .accessibilityLabel("task.create.accessibility")
         .accessibilityHint("task.create.hint")
-    }
-}
-
-private struct CreateTaskSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @FocusState private var isTitleFocused: Bool
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                AuthBackdrop()
-                VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                    Text("task.create.title")
-                        .font(.title.bold())
-                    Text("task.create.description")
-                        .font(.subheadline)
-                        .foregroundStyle(AppColors.textSecondary)
-
-                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                        Text("task.create.name.label")
-                            .font(.subheadline.weight(.medium))
-                        TextField("task.create.name.placeholder", text: $title)
-                            .focused($isTitleFocused)
-                            .padding(.horizontal, AppSpacing.md)
-                            .frame(minHeight: 54)
-                            .liquidGlassField(isInvalid: false, isFocused: isTitleFocused)
-                    }
-
-                    Button("common.continue") { dismiss() }
-                        .buttonStyle(GradientPrimaryButtonStyle())
-                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    Spacer()
-                }
-                .padding(AppSpacing.xl)
-            }
-            .navigationTitle("task.create.action")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("common.close") { dismiss() }
-                        .foregroundStyle(AppColors.accentPrimary)
-                }
-            }
-        }
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
     }
 }

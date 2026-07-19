@@ -25,6 +25,7 @@ async fn main() -> Result<(), String> {
 
     let config = config::Config::from_environment()?;
     let state = app::AppState::connect(config.clone()).await?;
+    modules::notifications::spawn_activity_reminder_worker(state.clone());
     let app = app::router(state);
     let address: SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()

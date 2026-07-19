@@ -54,6 +54,16 @@ enum ProfileCompletionStatus: Equatable {
     }
 }
 
+enum PreferredGroupSize: String, CaseIterable, Identifiable {
+    case oneToOne
+    case smallGroup
+    case largeGroup
+    case any
+
+    var id: String { rawValue }
+    var titleKey: String { "profile.group.\(rawValue)" }
+}
+
 extension CurrentUser {
     var initials: String { displayName.initials }
     var profileSubtitle: String {
@@ -66,6 +76,12 @@ extension CurrentUser {
         let values = [city?.nonEmpty, locationLabel?.nonEmpty].compactMap { $0 }
         guard !values.isEmpty else { return nil }
         return Array(NSOrderedSet(array: values)).compactMap { $0 as? String }.joined(separator: " · ")
+    }
+    var preferredGroupSizeValue: PreferredGroupSize? {
+        preferredGroupSize.flatMap(PreferredGroupSize.init(rawValue:))
+    }
+    var preferredGroupSizeText: String? {
+        preferredGroupSizeValue.map { L10n.string($0.titleKey) }
     }
     var profileStatus: ProfileCompletionStatus {
         if profileComplete == false || birthDate == nil {

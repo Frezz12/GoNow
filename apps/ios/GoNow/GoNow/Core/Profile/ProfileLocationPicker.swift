@@ -1,9 +1,10 @@
-import CoreLocation
 import Combine
 import Foundation
+@preconcurrency import CoreLocation
+import MapKit
 
 @MainActor
-final class ProfileLocationPicker: NSObject, ObservableObject, CLLocationManagerDelegate {
+final class ProfileLocationPicker: NSObject, ObservableObject, @preconcurrency CLLocationManagerDelegate {
     @Published private(set) var isRequesting = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var coordinate: CLLocationCoordinate2D?
@@ -55,10 +56,15 @@ final class ProfileLocationPicker: NSObject, ObservableObject, CLLocationManager
         isRequesting = false
 
         Task {
-            let placemarks = try? await CLGeocoder().reverseGeocodeLocation(location)
-            let placemark = placemarks?.first
-            let pieces = [placemark?.locality, placemark?.administrativeArea].compactMap { $0 }
-            label = pieces.isEmpty ? L10n.string("location.current") : pieces.joined(separator: ", ")
+            guard let request = MKReverseGeocodingRequest(location: location) else {
+                label = L10n.string("location.current")
+                return
+            }
+            request.preferredLocale = .autoupdatingCurrent
+            let representation = try? await request.mapItems.first?.addressRepresentations
+            label = representation?.cityWithContext
+                ?? representation?.regionName
+                ?? L10n.string("location.current")
         }
     }
 
