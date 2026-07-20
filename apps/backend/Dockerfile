@@ -1,43 +1,30 @@
-# =========================
-# Этап сборки
-# =========================
 FROM rust:1.95-bookworm AS builder
 
 WORKDIR /app
 
-ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-ENV CARGO_HTTP_TIMEOUT=120
-ENV CARGO_HTTP_LOW_SPEED_LIMIT=1
-ENV CARGO_NET_RETRY=5
-ENV CARGO_HTTP_MULTIPLEXING=false
 ENV CARGO_TERM_COLOR=always
+ENV CARGO_HTTP_MULTIPLEXING=false
+ENV CARGO_HTTP_TIMEOUT=120
+ENV CARGO_NET_RETRY=10
 
-# Сначала копируем только Cargo-файлы
 COPY Cargo.toml Cargo.lock ./
+COPY .cargo/config.toml .cargo/config.toml
 
-# Создаём временный target, чтобы Cargo мог прочитать manifest
 RUN mkdir -p src \
     && printf 'fn main() {}\n' > src/main.rs
 
-# Загружаем зависимости
 RUN cargo fetch --locked -vv
 
-# Собираем зависимости из локального кеша
-RUN cargo build --release --locked --offline -vv
+RUN cargo build --release --locked -vv
 
-# Удаляем временный исходник
 RUN rm -rf src
 
-# Копируем настоящий проект
 COPY . .
 
-# Собираем настоящий backend
-RUN cargo build --release --locked --offline -vv
+RUN touch src/main.rs \
+    && cargo build --release --locked -vv
 
 
-# =========================
-# Финальный образ
-# =========================
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update \
