@@ -5,27 +5,32 @@ FROM rust:1.95-bookworm AS builder
 
 WORKDIR /app
 
-# Настройки Cargo для стабильной загрузки зависимостей
+# Настройки Cargo для нестабильной сети
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-ENV CARGO_HTTP_TIMEOUT=600
-ENV CARGO_NET_RETRY=10
+ENV CARGO_HTTP_TIMEOUT=120
+ENV CARGO_HTTP_LOW_SPEED_LIMIT=1
+ENV CARGO_NET_RETRY=5
 ENV CARGO_HTTP_MULTIPLEXING=false
+ENV CARGO_TERM_COLOR=always
 
-# Сначала копируем только файлы зависимостей
+# Копируем файлы зависимостей
 COPY Cargo.toml Cargo.lock ./
 
-# Предварительно собираем зависимости для кеширования Docker-слоя
+# Отдельно загружаем зависимости с подробным логом
+RUN cargo fetch --locked -vv
+
+# Собираем зависимости из локального кеша Cargo
 RUN mkdir -p src \
     && printf 'fn main() {}\n' > src/main.rs \
-    && cargo build --release --locked \
+    && cargo build --release --locked --offline -vv \
     && rm -rf src
 
-# Копируем исходный код проекта
+# Копируем настоящий исходный код
 COPY . .
 
-# Пересобираем приложение с настоящими исходниками
+# Собираем приложение без обращения к сети
 RUN touch src/main.rs \
-    && cargo build --release --locked
+    && cargo build --release --locked --offline -vv
 
 
 # =========================
@@ -33,7 +38,6 @@ RUN touch src/main.rs \
 # =========================
 FROM debian:bookworm-slim AS runtime
 
-# Устанавливаем сертификаты и создаём отдельного пользователя
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -43,8 +47,9 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Копируем собранный backend
-COPY --from=builder /app/target/release/gonow-backend /usr/local/bin/gonow-backend
+COPY --from=builder \
+    /app/target/release/gonow-backend \
+    /usr/local/bin/gonow-backend
 
 USER appuser
 
