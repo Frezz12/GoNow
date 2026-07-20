@@ -15,18 +15,18 @@ struct ProfileSetupPrompt: View {
                 .background(GoNowTheme.buttonGradient, in: Circle())
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Расскажите о себе")
+                Text("profile.setup.prompt.title")
                     .font(.subheadline.weight(.semibold))
-                Text("Это займёт около минуты.")
+                Text("profile.setup.prompt.subtitle")
                     .font(.footnote)
                     .foregroundStyle(AppColors.textSecondary)
             }
 
             Spacer(minLength: 8)
 
-            Button("Заполнить") { action() }
+            Button("profile.setup.prompt.action") { action() }
                 .buttonStyle(GlassInlineButtonStyle())
-                .accessibilityLabel("Заполнить профиль")
+                .accessibilityLabel("profile.setup.prompt.accessibility")
         }
         .padding(14)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -42,13 +42,13 @@ struct ProfileSetupPrompt: View {
 struct ProfileSetupFlow: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let user: CurrentUser
 
     @State private var step = 0
     @State private var birthDate: Date
     @State private var city: String
     @State private var occupation: String
-    @State private var relationshipStatus: String
     @State private var interests: String
     @State private var bio: String
     @State private var locationLabel: String
@@ -61,7 +61,7 @@ struct ProfileSetupFlow: View {
     @StateObject private var locationPicker = ProfileLocationPicker()
 
     private enum SetupField: Hashable {
-        case city, occupation, relationshipStatus, interests, location
+        case city, occupation, interests, location
     }
 
     init(user: CurrentUser) {
@@ -69,7 +69,6 @@ struct ProfileSetupFlow: View {
         _birthDate = State(initialValue: Calendar.current.date(byAdding: .year, value: -25, to: .now) ?? .now)
         _city = State(initialValue: user.city ?? "")
         _occupation = State(initialValue: user.occupation ?? "")
-        _relationshipStatus = State(initialValue: user.relationshipStatus ?? "")
         _interests = State(initialValue: (user.interests ?? []).joined(separator: ", "))
         _bio = State(initialValue: user.bio ?? "")
         _locationLabel = State(initialValue: user.locationLabel ?? "")
@@ -96,11 +95,11 @@ struct ProfileSetupFlow: View {
                     .padding(24)
                 }
             }
-            .navigationTitle("Заполнение профиля")
+            .navigationTitle("profile.setup.navigation_title")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Закрыть") { dismiss() }
+                    Button("common.close") { dismiss() }
                         .foregroundStyle(GoNowTheme.primary)
                 }
             }
@@ -117,7 +116,7 @@ struct ProfileSetupFlow: View {
 
     private var progress: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Шаг \(step + 1) из 4")
+            Text(L10n.format("profile.setup.progress %lld %lld", step + 1, 4))
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(GoNowTheme.primary)
             GeometryReader { proxy in
@@ -142,26 +141,25 @@ struct ProfileSetupFlow: View {
                     Image(systemName: "calendar.circle.fill")
                         .font(.system(size: 40))
                         .foregroundStyle(GoNowTheme.primary)
-                    Text("Когда у вас день рождения?")
+                    Text("profile.setup.birth_date.title")
                         .font(.title2.bold())
-                    Text("Дата нужна, чтобы безопасно подбирать активности по возрасту. Её не увидят другие пользователи.")
+                    Text("profile.setup.birth_date.description")
                         .font(.subheadline)
                         .foregroundStyle(AppColors.textSecondary)
-                    DatePicker("Дата рождения", selection: $birthDate, in: ...Date(), displayedComponents: .date)
+                    DatePicker("profile.birth_date.title", selection: $birthDate, in: ...Date(), displayedComponents: .date)
                         .datePickerStyle(.graphical)
                 }
             }
         case 1:
             GlassCard {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Чем вы занимаетесь?")
+                    Text("profile.setup.about.title")
                         .font(.title2.bold())
-                    Text("Эти поля необязательны — их можно пропустить и изменить позже.")
+                    Text("profile.setup.about.description")
                         .font(.subheadline)
                         .foregroundStyle(AppColors.textSecondary)
-                    setupField("Город", text: $city, field: .city, contentType: .addressCity)
-                    setupField("Чем занимаетесь", text: $occupation, field: .occupation)
-                    setupField("Семейный статус", text: $relationshipStatus, field: .relationshipStatus)
+                    setupField(L10n.string("profile.field.city"), text: $city, field: .city, contentType: .addressCity)
+                    setupField(L10n.string("profile.field.occupation"), text: $occupation, field: .occupation)
                 }
             }
         case 2:
@@ -170,17 +168,17 @@ struct ProfileSetupFlow: View {
                     Image(systemName: "location.circle.fill")
                         .font(.system(size: 40))
                         .foregroundStyle(GoNowTheme.primary)
-                    Text("Где вы сейчас?")
+                    Text("profile.setup.location.title")
                         .font(.title2.bold())
-                    Text("Укажите район, город или место вручную — либо используйте геолокацию. Точный адрес никто не увидит.")
+                    Text("profile.setup.location.description")
                         .font(.subheadline)
                         .foregroundStyle(AppColors.textSecondary)
-                    setupField("Район, город или место", text: $locationLabel, field: .location)
+                    setupField(L10n.string("profile.location.placeholder"), text: $locationLabel, field: .location)
                     Button {
                         locationPicker.requestCurrentLocation()
                     } label: {
                         Label(
-                            locationPicker.isRequesting ? "Определяем место…" : "Использовать мою геолокацию",
+                            locationPicker.isRequesting ? L10n.string("location.resolving") : L10n.string("location.use_current"),
                             systemImage: "location.fill"
                         )
                     }
@@ -189,9 +187,9 @@ struct ProfileSetupFlow: View {
 
                     Toggle(isOn: $showDistance) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Показывать расстояние до меня")
+                            Text("profile.distance.toggle")
                                 .font(.subheadline.weight(.medium))
-                            Text("Люди увидят только примерное расстояние, без адреса.")
+                            Text("profile.distance.helper.short")
                                 .font(.footnote)
                                 .foregroundStyle(AppColors.textSecondary)
                         }
@@ -206,13 +204,13 @@ struct ProfileSetupFlow: View {
         default:
             GlassCard {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Пара штрихов о вас")
+                    Text("profile.setup.interests.title")
                         .font(.title2.bold())
-                    Text("Добавьте интересы, чтобы людям было проще начать разговор.")
+                    Text("profile.setup.interests.description")
                         .font(.subheadline)
                         .foregroundStyle(AppColors.textSecondary)
-                    setupField("Интересы", text: $interests, field: .interests)
-                    Text("Через запятую: прогулки, кино, йога")
+                    setupField(L10n.string("profile.interests.title"), text: $interests, field: .interests)
+                    Text("profile.interests.helper")
                         .font(.footnote)
                         .foregroundStyle(AppColors.textSecondary)
                     TextEditor(text: $bio)
@@ -229,10 +227,10 @@ struct ProfileSetupFlow: View {
     private var controls: some View {
         HStack(spacing: 12) {
             if step > 0 {
-                Button("Назад") { step -= 1 }
+                Button("common.back") { step -= 1 }
                     .buttonStyle(GlassSecondaryButtonStyle())
             }
-            Button(step == 3 ? (isSaving ? "Сохраняем…" : "Готово") : "Далее") {
+            Button(step == 3 ? (isSaving ? L10n.string("common.saving") : L10n.string("common.done")) : L10n.string("common.next")) {
                 advance()
             }
             .buttonStyle(GradientPrimaryButtonStyle())
@@ -262,7 +260,7 @@ struct ProfileSetupFlow: View {
     private func advance() {
         errorMessage = nil
         if step < 3 {
-            withAnimation(.easeOut(duration: 0.22)) { step += 1 }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { step += 1 }
             return
         }
 
@@ -273,12 +271,16 @@ struct ProfileSetupFlow: View {
         isSaving = true
         let payload = UpdateProfilePayload(
             displayName: user.displayName,
+            username: user.username,
             birthDate: ProfileDate.format(birthDate),
             city: city.nilIfEmpty,
             occupation: occupation.nilIfEmpty,
             bio: bio.nilIfEmpty,
             interests: parsedInterests,
-            relationshipStatus: relationshipStatus.nilIfEmpty,
+            languages: user.languages ?? [],
+            availability: user.availability,
+            preferredGroupSize: user.preferredGroupSize,
+            relationshipStatus: nil,
             locationLabel: locationLabel.nilIfEmpty,
             latitude: latitude,
             longitude: longitude,

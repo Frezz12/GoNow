@@ -1,9 +1,10 @@
-import CoreLocation
 import Combine
 import Foundation
+@preconcurrency import CoreLocation
+import MapKit
 
 @MainActor
-final class ProfileLocationPicker: NSObject, ObservableObject, CLLocationManagerDelegate {
+final class ProfileLocationPicker: NSObject, ObservableObject, @preconcurrency CLLocationManagerDelegate {
     @Published private(set) var isRequesting = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var coordinate: CLLocationCoordinate2D?
@@ -21,38 +22,54 @@ final class ProfileLocationPicker: NSObject, ObservableObject, CLLocationManager
         errorMessage = nil
         switch manager.authorizationStatus {
         case .notDetermined:
+            isRequesting = true
             manager.requestWhenInUseAuthorization()
         case .authorizedAlways, .authorizedWhenInUse:
             isRequesting = true
             manager.requestLocation()
         case .denied, .restricted:
-            errorMessage = "Разрешите доступ к геопозиции в настройках iPhone."
+            errorMessage = L10n.string("location.permission.settings")
         @unknown default:
-            errorMessage = "Не удалось определить доступ к геопозиции."
+            errorMessage = L10n.string("location.permission.unknown")
         }
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        if manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
             isRequesting = true
             manager.requestLocation()
+        case .denied, .restricted:
+            isRequesting = false
+            errorMessage = L10n.string("location.permission.settings")
+        case .notDetermined:
+            break
+        @unknown default:
+            isRequesting = false
+            errorMessage = L10n.string("location.permission.unknown")
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
+        coordinate = location.coordinate
+        isRequesting = false
+
         Task {
-            let placemarks = try? await CLGeocoder().reverseGeocodeLocation(location)
-            let placemark = placemarks?.first
-            let pieces = [placemark?.locality, placemark?.administrativeArea].compactMap { $0 }
-            label = pieces.isEmpty ? "Текущее местоположение" : pieces.joined(separator: ", ")
-            coordinate = location.coordinate
-            isRequesting = false
+            guard let request = MKReverseGeocodingRequest(location: location) else {
+                label = L10n.string("location.current")
+                return
+            }
+            request.preferredLocale = .autoupdatingCurrent
+            let representation = try? await request.mapItems.first?.addressRepresentations
+            label = representation?.cityWithContext
+                ?? representation?.regionName
+                ?? L10n.string("location.current")
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         isRequesting = false
-        errorMessage = "Не удалось определить геопозицию. Попробуйте ещё раз."
+        errorMessage = L10n.string("location.resolve.error")
     }
 }

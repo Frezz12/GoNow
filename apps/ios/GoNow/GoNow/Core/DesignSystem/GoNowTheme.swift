@@ -286,7 +286,7 @@ struct AppBadge: View {
 
 enum AppTab: Int, CaseIterable, Identifiable, Hashable {
     case map
-    case tasks
+    case activities
     case chat
     case profile
 
@@ -294,17 +294,17 @@ enum AppTab: Int, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .map: "Карта"
-        case .tasks: "Задания"
-        case .chat: "Чат"
-        case .profile: "Профиль"
+        case .map: L10n.string("tab.map")
+        case .activities: L10n.string("tab.activities")
+        case .chat: L10n.string("tab.chat")
+        case .profile: L10n.string("tab.profile")
         }
     }
 
     var symbol: String {
         switch self {
         case .map: "map.fill"
-        case .tasks: "checklist"
+        case .activities: "figure.run.circle.fill"
         case .chat: "message.fill"
         case .profile: "person.crop.circle.fill"
         }
@@ -339,11 +339,12 @@ struct MapPointMarker: View {
             .foregroundStyle(AppColors.textOnAccent, AppColors.accentPrimary)
             .appShadow(.floating)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Метка активности на карте")
+            .accessibilityLabel("map.marker.accessibility")
     }
 }
 
 private struct AppTextFieldSurfaceModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isInvalid: Bool
     let isFocused: Bool
 
@@ -359,7 +360,7 @@ private struct AppTextFieldSurfaceModifier: ViewModifier {
                 )
             }
             .shadow(color: isFocused ? AppColors.accentPrimary.opacity(0.20) : .clear, radius: 12, y: 4)
-            .animation(AppAnimation.fast, value: isFocused)
+            .animation(reduceMotion ? nil : AppAnimation.fast, value: isFocused)
     }
 }
 
@@ -370,6 +371,6 @@ struct ErrorMessage: View {
         Label(text, systemImage: "exclamationmark.circle.fill")
             .font(AppTypography.caption)
             .foregroundStyle(AppColors.error)
-            .accessibilityLabel("Ошибка: \(text)")
+            .accessibilityLabel(L10n.format("common.error.accessibility %@", text))
     }
 }

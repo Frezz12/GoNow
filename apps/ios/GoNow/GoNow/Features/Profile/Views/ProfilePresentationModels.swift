@@ -13,13 +13,9 @@ enum ProfileDate {
     static func parse(_ value: String) -> Date? { formatter.date(from: value) }
     static func format(_ value: Date) -> String { formatter.string(from: value) }
 
-    static let displayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "d MMMM"
-        return formatter
-    }()
+    static func display(_ value: Date) -> String {
+        value.formatted(.dateTime.locale(L10n.locale).day().month(.wide))
+    }
 }
 
 enum ProfileCompletionStatus: Equatable {
@@ -40,22 +36,32 @@ enum ProfileCompletionStatus: Equatable {
         case .complete:
             return ""
         case .optional:
-            return "Добавьте немного информации, чтобы люди больше узнали о вас."
+            return L10n.string("profile.status.optional")
         case .required:
-            return "Укажите дату рождения, чтобы создавать задания и подавать заявки."
+            return L10n.string("profile.status.required")
         }
     }
 
     var accessibilityDescription: String {
         switch self {
         case .complete:
-            return "Профиль заполнен"
+            return L10n.string("profile.status.complete")
         case .optional:
-            return "Есть необязательные незаполненные поля"
+            return L10n.string("profile.status.optional.accessibility")
         case .required:
-            return "Не заполнено обязательное поле: дата рождения"
+            return L10n.string("profile.status.required.accessibility")
         }
     }
+}
+
+enum PreferredGroupSize: String, CaseIterable, Identifiable {
+    case oneToOne
+    case smallGroup
+    case largeGroup
+    case any
+
+    var id: String { rawValue }
+    var titleKey: String { "profile.group.\(rawValue)" }
 }
 
 extension CurrentUser {
@@ -65,6 +71,17 @@ extension CurrentUser {
     }
     var ratingText: String {
         String(format: "%.1f", min(max(rating ?? 5, 1), 5))
+    }
+    var profileLocationText: String? {
+        let values = [city?.nonEmpty, locationLabel?.nonEmpty].compactMap { $0 }
+        guard !values.isEmpty else { return nil }
+        return Array(NSOrderedSet(array: values)).compactMap { $0 as? String }.joined(separator: " · ")
+    }
+    var preferredGroupSizeValue: PreferredGroupSize? {
+        preferredGroupSize.flatMap(PreferredGroupSize.init(rawValue:))
+    }
+    var preferredGroupSizeText: String? {
+        preferredGroupSizeValue.map { L10n.string($0.titleKey) }
     }
     var profileStatus: ProfileCompletionStatus {
         if profileComplete == false || birthDate == nil {
@@ -81,7 +98,6 @@ extension CurrentUser {
             && occupation?.nonEmpty == nil
             && bio?.nonEmpty == nil
             && interests?.isEmpty != false
-            && relationshipStatus?.nonEmpty == nil
             && locationLabel?.nonEmpty == nil
     }
     var age: Int? {
@@ -91,20 +107,7 @@ extension CurrentUser {
 
     var birthDateAndAgeText: String? {
         guard let birthDate, let date = ProfileDate.parse(birthDate), let age else { return nil }
-        return "\(ProfileDate.displayFormatter.string(from: date)), \(age) \(age.russianYears)"
-    }
-}
-
-private extension Int {
-    var russianYears: String {
-        let remainder100 = self % 100
-        let remainder10 = self % 10
-        if (11...14).contains(remainder100) { return "лет" }
-        switch remainder10 {
-        case 1: return "год"
-        case 2...4: return "года"
-        default: return "лет"
-        }
+        return "\(ProfileDate.display(date)), \(L10n.age(age))"
     }
 }
 

@@ -12,8 +12,17 @@ final class AuthRepository {
         self.deviceProvider = deviceProvider
     }
 
-    func register(name: String, email: String, password: String) async throws -> RegistrationData {
-        let response: APIEnvelope<RegistrationData> = try await api.post("auth/register", body: RegisterPayload(email: email, password: password, displayName: name, device: try deviceProvider.payload()))
+    func register(name: String, username: String, email: String, password: String) async throws -> RegistrationData {
+        let response: APIEnvelope<RegistrationData> = try await api.post(
+            "auth/register",
+            body: RegisterPayload(
+                email: email,
+                password: password,
+                displayName: name,
+                username: UsernameRules.normalize(username),
+                device: try deviceProvider.payload()
+            )
+        )
         return response.data
     }
 
@@ -56,6 +65,15 @@ final class AuthRepository {
 
     func updateProfile(_ payload: UpdateProfilePayload) async throws -> CurrentUser {
         let response: APIEnvelope<CurrentUser> = try await api.patch("users/me", body: payload)
+        return response.data
+    }
+
+    func usernameAvailability(_ username: String, authenticated: Bool = true) async throws -> UsernameAvailability {
+        let response: APIEnvelope<UsernameAvailability> = try await api.get(
+            "users/username-availability",
+            queryItems: [URLQueryItem(name: "username", value: username)],
+            authenticated: authenticated
+        )
         return response.data
     }
 

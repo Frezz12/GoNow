@@ -3,10 +3,28 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use std::future::Future;
 use tracing::error;
 use uuid::Uuid;
 
 use crate::shared::response::{ErrorBody, ErrorEnvelope};
+
+tokio::task_local! {
+    static CURRENT_REQUEST_ID: String;
+}
+
+pub async fn with_request_id<F>(request_id: String, future: F) -> F::Output
+where
+    F: Future,
+{
+    CURRENT_REQUEST_ID.scope(request_id, future).await
+}
+
+fn current_request_id() -> String {
+    CURRENT_REQUEST_ID
+        .try_with(Clone::clone)
+        .unwrap_or_else(|_| Uuid::new_v4().to_string())
+}
 
 #[derive(Debug)]
 pub struct AppError {
@@ -41,6 +59,30 @@ impl AppError {
             fields: None,
         }
     }
+    pub fn not_found(code: &'static str, message: &str) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code,
+            message: message.into(),
+            fields: None,
+        }
+    }
+    pub fn forbidden(code: &'static str, message: &str) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code,
+            message: message.into(),
+            fields: None,
+        }
+    }
+    pub fn conflict(code: &'static str, message: &str) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code,
+            message: message.into(),
+            fields: None,
+        }
+    }
     pub fn internal(error: impl std::fmt::Display) -> Self {
         error!(error = %error, "unhandled application error");
         Self {
@@ -54,7 +96,7 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let request_id = Uuid::new_v4().to_string();
+        let request_id = current_request_id();
         let body = ErrorEnvelope {
             error: ErrorBody {
                 code: self.code.into(),
