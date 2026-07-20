@@ -45,6 +45,7 @@ struct MainTabView: View {
                     .tag(AppTab.activities)
                 ChatTabView()
                     .tabItem { Label(AppTab.chat.title, systemImage: AppTab.chat.symbol) }
+                    .badge(appState.unreadChatCount)
                     .tag(AppTab.chat)
                 ProfileTabView(onNotificationsTap: { isNotificationsPresented = true })
                     .tabItem { Label(AppTab.profile.title, systemImage: AppTab.profile.symbol) }
@@ -88,12 +89,17 @@ struct MainTabView: View {
         .task {
             appState.startNotificationUpdates()
             await appState.reloadNotificationCount()
+            await appState.reloadChatUnreadCount()
             await pushNotifications.requestAuthorizationIfNeeded()
             if let token = pushNotifications.deviceToken {
                 await appState.registerPushToken(token)
             }
             if pushNotifications.pendingDestination != nil {
                 isNotificationsPresented = true
+            }
+            if let action = pushNotifications.pendingAction {
+                pushNotifications.consumePendingAction()
+                await appState.performPushAction(action)
             }
         }
         .onReceive(pushNotifications.$deviceToken.compactMap { $0 }) { token in
@@ -102,10 +108,20 @@ struct MainTabView: View {
         .onChange(of: pushNotifications.pendingDestination) { _, destination in
             if destination != nil { isNotificationsPresented = true }
         }
+        .onChange(of: pushNotifications.pendingAction) { _, action in
+            guard let action else { return }
+            pushNotifications.consumePendingAction()
+            Task {
+                await appState.performPushAction(action)
+            }
+        }
         .onChange(of: selectedTab) { _, tab in
             if tab != .map {
                 isMapSearchActive = false
                 activityMapModel.searchQuery = ""
+            }
+            if tab == .chat {
+                Task { await appState.reloadChatUnreadCount() }
             }
         }
         .sheet(isPresented: $isCreateTaskPresented) {

@@ -106,7 +106,10 @@ struct ChatConversationView: View {
         .onDisappear {
             voiceRecorder.cancel()
             if let url = mediaDraftURLToCleanup { try? FileManager.default.removeItem(at: url) }
-            Task { await appState.socialRepository.closeLiveEvents(conversationID: conversationID) }
+            Task {
+                await appState.socialRepository.closeLiveEvents(conversationID: conversationID)
+                await appState.reloadChatUnreadCount()
+            }
         }
         .sheet(item: $proposalKind) { kind in
             ProposalComposer(kind: kind) { body, detail in
@@ -223,7 +226,10 @@ struct ChatConversationView: View {
     }
 
     private func reload() async {
-        do { messages = try await appState.socialRepository.messages(conversationID: conversationID) }
+        do {
+            messages = try await appState.socialRepository.messages(conversationID: conversationID)
+            await appState.reloadChatUnreadCount()
+        }
         catch { errorMessage = error.localizedDescription }
     }
 
@@ -593,6 +599,10 @@ private struct ChatMessageRow: View {
                 .padding(.vertical, AppSpacing.sm)
                 .glassSurface(.subtle, cornerRadius: AppRadius.control)
                 .frame(maxWidth: .infinity)
+        } else if message.isInvitation {
+            invitationCard
+                .frame(maxWidth: 340)
+                .frame(maxWidth: .infinity, alignment: message.isMine ? .trailing : .leading)
         } else if message.isAttachment {
             attachmentCard
                 .frame(maxWidth: 330, alignment: message.isMine ? .trailing : .leading)
@@ -614,15 +624,45 @@ private struct ChatMessageRow: View {
                     .padding(.horizontal, AppSpacing.md)
                     .padding(.vertical, 11)
                     .background(
-                        message.isMine ? AnyShapeStyle(AppGradients.brand) : AnyShapeStyle(.ultraThinMaterial),
+                        message.isMine
+                            ? AnyShapeStyle(AppGradients.brand)
+                            : AnyShapeStyle(AppColors.accentPrimary.opacity(0.14)),
                         in: RoundedRectangle(cornerRadius: 20, style: .continuous)
                     )
+                    .overlay {
+                        if !message.isMine {
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .strokeBorder(AppColors.accentPrimary.opacity(0.28), lineWidth: 1)
+                        }
+                    }
                 Text(message.createdAt.formatted(date: .omitted, time: .shortened))
                     .font(.caption2)
                     .foregroundStyle(AppColors.textMuted)
             }
             .frame(maxWidth: 310, alignment: message.isMine ? .trailing : .leading)
             .frame(maxWidth: .infinity, alignment: message.isMine ? .trailing : .leading)
+        }
+    }
+
+    private var invitationCard: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            Label("Приглашение", systemImage: "figure.walk.motion")
+                .font(AppTypography.captionStrong)
+                .foregroundStyle(AppColors.accentPrimary)
+            Text(message.body)
+                .font(AppTypography.body)
+                .foregroundStyle(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(message.createdAt.formatted(date: .omitted, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(AppColors.textMuted)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(AppSpacing.md)
+        .background(AppColors.accentPrimary.opacity(0.1), in: RoundedRectangle(cornerRadius: AppRadius.card, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: AppRadius.card, style: .continuous)
+                .strokeBorder(AppColors.accentPrimary.opacity(0.24), lineWidth: 1)
         }
     }
 

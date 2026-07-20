@@ -8,7 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use redis::aio::ConnectionManager;
+use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::sync::broadcast;
 use tower_http::{
@@ -56,7 +56,13 @@ impl AppState {
             .map_err(|_| "database migrations failed".to_string())?;
         let client = redis::Client::open(config.redis_url.clone())
             .map_err(|_| "invalid REDIS_URL".to_string())?;
-        let mut redis = ConnectionManager::new(client)
+        let redis_config = ConnectionManagerConfig::new()
+            .set_factor(50)
+            .set_max_delay(1_000)
+            .set_number_of_retries(8)
+            .set_connection_timeout(std::time::Duration::from_secs(3))
+            .set_response_timeout(std::time::Duration::from_secs(3));
+        let mut redis = ConnectionManager::new_with_config(client, redis_config)
             .await
             .map_err(|_| "Redis is unavailable".to_string())?;
         redis::cmd("PING")
@@ -79,7 +85,7 @@ impl AppState {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, users::username_availability, users::public_profile, media::list_profile_photos, media::upload_avatar, media::upload_profile_photo, media::download_profile_photo, media::delete_profile_photo, weather::current, activities::create, activities::detail, activities::mine, activities::update, activities::apply, activities::applications, activities::update_application, activities::duplicate, activities::upload_photo, activities::download_photo, activities::review, activities::map, health),
+    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, users::username_availability, users::public_profile, media::list_profile_photos, media::upload_avatar, media::upload_profile_photo, media::download_profile_photo, media::delete_profile_photo, weather::current, activities::create, activities::detail, activities::mine, activities::participating, activities::update, activities::apply, activities::applications, activities::update_application, activities::duplicate, activities::upload_photo, activities::download_photo, activities::review, activities::map, health),
     components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, users::PublicProfileResponse, users::UpdateProfileRequest, users::UsernameAvailabilityResponse, media::ProfilePhotoResponse, media::ProfilePhotosResponse, weather::CurrentWeatherResponse, activities::ActivityStatus, activities::ApplicationStatus, activities::ActivityQuestion, activities::CreateActivityRequest, activities::UpdateActivityRequest, activities::CreateApplicationRequest, activities::ApplicationAnswer, activities::UpdateApplicationRequest, activities::CreateReviewRequest, activities::ActivityPhotoResponse, activities::ActivityResponse, activities::ActivityLocationResponse, activities::ActivityApplicantResponse, activities::ActivityApplicationResponse, activities::MapActivityResponse, activities::ActivityCoordinateResponse, activities::MapViewportResponse, activities::MapActivitiesData, activities::MapActivitiesMeta, activities::MapActivitiesEnvelope, crate::shared::response::ErrorEnvelope)),
     tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"), (name = "media", description = "Private profile photos"), (name = "weather", description = "Current weather"), (name = "activities", description = "Offline activities and map discovery"))
 )]
@@ -108,6 +114,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/auth/logout", post(auth::logout))
         .route("/api/v1/activities", post(activities::create))
         .route("/api/v1/activities/mine", get(activities::mine))
+        .route(
+            "/api/v1/activities/participating",
+            get(activities::participating),
+        )
         .route("/api/v1/activities/map", get(activities::map))
         .route(
             "/api/v1/activities/{activity_id}",
@@ -303,6 +313,9 @@ fn request_operation(method: &Method, path: &str) -> (&'static str, &'static str
         }
         ("POST", "/api/v1/activities") => ("activities.create", "Создание активности"),
         ("GET", "/api/v1/activities/mine") => ("activities.mine", "Мои активности"),
+        ("GET", "/api/v1/activities/participating") => {
+            ("activities.participating", "Активности с моим участием")
+        }
         ("GET", "/api/v1/activities/map") => ("activities.map", "Получение активностей на карте"),
         ("GET", path)
             if path.starts_with("/api/v1/activities/") && path.ends_with("/applications") =>

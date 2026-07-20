@@ -68,6 +68,9 @@ final class ActivityCreationViewModel: ObservableObject {
                 if restored.showTiming == .immediately { restored.showTiming = .atStart }
                 restored.visibilityTimingVersion = 2
             }
+            restored.additionalQuestions = []
+            restored.location?.address = nil
+            restored.location?.venueName = nil
             draft = restored
         }
     }
@@ -213,11 +216,11 @@ final class ActivityCreationViewModel: ObservableObject {
 
     func useCoordinate(_ coordinate: MapCoordinate, resolveAddress: Bool = true) async {
         guard coordinate.isValid else { return }
-        let address = resolveAddress ? await locationSearch.address(for: coordinate) : draft.location?.address
+        let address = resolveAddress ? await locationSearch.address(for: coordinate) : nil
         draft.location = ActivityLocation(
             coordinate: coordinate,
             address: address,
-            venueName: draft.location?.venueName,
+            venueName: nil,
             visibility: draft.location?.visibility ?? .everyone,
             isExact: true
         )
@@ -247,9 +250,6 @@ final class ActivityCreationViewModel: ObservableObject {
         case .participants:
             if draft.participantLimit.map({ $0 < 2 }) == true { return L10n.string("activity.validation.participants") }
             if let min = draft.ageMin, let max = draft.ageMax, min > max { return L10n.string("activity.validation.age") }
-            if draft.additionalQuestions.contains(where: { $0.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-                return L10n.string("activity.validation.questions")
-            }
         case .preview:
             break
         }

@@ -17,7 +17,6 @@ struct ProfileEditorSheet: View {
     @State private var languages: String
     @State private var availability: String
     @State private var preferredGroupSize: PreferredGroupSize?
-    @State private var relationshipStatus: String
     @State private var locationLabel: String
     @State private var latitude: Double?
     @State private var longitude: Double?
@@ -33,7 +32,6 @@ struct ProfileEditorSheet: View {
     @FocusState private var isInterestsFocused: Bool
     @FocusState private var isLanguagesFocused: Bool
     @FocusState private var isAvailabilityFocused: Bool
-    @FocusState private var isRelationshipFocused: Bool
     @FocusState private var isLocationFocused: Bool
     @StateObject private var locationPicker = ProfileLocationPicker()
 
@@ -48,7 +46,6 @@ struct ProfileEditorSheet: View {
         _languages = State(initialValue: (user.languages ?? []).joined(separator: ", "))
         _availability = State(initialValue: user.availability ?? "")
         _preferredGroupSize = State(initialValue: user.preferredGroupSizeValue)
-        _relationshipStatus = State(initialValue: user.relationshipStatus ?? "")
         _locationLabel = State(initialValue: user.locationLabel ?? "")
         _latitude = State(initialValue: user.latitude)
         _longitude = State(initialValue: user.longitude)
@@ -82,7 +79,6 @@ struct ProfileEditorSheet: View {
                         )
                         ProfileInput(title: L10n.string("profile.field.city"), text: $city, isFocused: $isCityFocused, contentType: .addressCity, capitalization: .words)
                         ProfileInput(title: L10n.string("profile.field.occupation"), text: $occupation, isFocused: $isOccupationFocused, capitalization: .sentences)
-                        ProfileInput(title: L10n.string("profile.field.relationship"), text: $relationshipStatus, isFocused: $isRelationshipFocused, capitalization: .sentences)
 
                         GlassCard {
                             VStack(alignment: .leading, spacing: 12) {
@@ -283,7 +279,7 @@ struct ProfileEditorSheet: View {
             languages: languageItems,
             availability: availability.nilIfEmpty,
             preferredGroupSize: preferredGroupSize?.rawValue,
-            relationshipStatus: relationshipStatus.nilIfEmpty,
+            relationshipStatus: nil,
             locationLabel: locationLabel.nilIfEmpty,
             latitude: latitude,
             longitude: longitude,

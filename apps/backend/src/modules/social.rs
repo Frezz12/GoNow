@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     app::AppState,
+    infrastructure::cache,
     shared::{errors::AppError, response::ApiResponse},
 };
 
@@ -28,6 +29,7 @@ use super::{
 
 pub const MAX_CHAT_ATTACHMENT_BYTES: usize = 50 * 1024 * 1024;
 pub const MAX_CHAT_MULTIPART_BODY_BYTES: usize = MAX_CHAT_ATTACHMENT_BYTES + 256 * 1024;
+const CHAT_ATTACHMENT_CACHE_CONTROL: &str = "private, max-age=604800, immutable";
 
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -319,6 +321,7 @@ pub async fn decide_friend(
             fields: None,
         });
     }
+    notifications::resolve_entity_action(&state, viewer_id, "user", user_id, status).await?;
     if status == "accepted" {
         let actor_name = user_display_name(&state, viewer_id).await?;
         notifications::emit(
@@ -348,7 +351,7 @@ pub async fn remove_friend(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(user_id): Path<Uuid>,
-) -> Result<StatusCode, AppError> {
+) -> Result<Json<ApiResponse<SocialUserResponse>>, AppError> {
     let viewer_id = active_user_id(&headers, &state).await?;
     let (low, high) = ordered_pair(viewer_id, user_id);
     sqlx::query("DELETE FROM friendships WHERE user_low = $1 AND user_high = $2")
@@ -357,7 +360,10 @@ pub async fn remove_friend(
         .execute(&state.db)
         .await
         .map_err(AppError::internal)?;
-    Ok(StatusCode::NO_CONTENT)
+    notifications::resolve_entity_action(&state, user_id, "user", viewer_id, "cancelled").await?;
+    Ok(Json(ApiResponse::new(
+        social_user(&state, viewer_id, user_id).await?,
+    )))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -503,21 +509,54 @@ pub async fn create_invitation(
         ));
     }
     let id = Uuid::new_v4();
+    let conversation_id = Uuid::new_v4();
+    let sender_name = user_display_name(&state, sender_id).await?;
+    let template = request.template;
+    let proposed_at = request.proposed_at;
+    let place = clean(request.place);
+    let message = clean(request.message);
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
+    sqlx::query("INSERT INTO conversations (id, kind, title) VALUES ($1, 'meeting', $2)")
+        .bind(conversation_id)
+        .bind(format!("Встреча · {}", template_title(&template)))
+        .execute(&mut *tx)
+        .await
+        .map_err(AppError::internal)?;
+    add_member(&mut tx, conversation_id, sender_id).await?;
+    add_member(&mut tx, conversation_id, request.recipient_id).await?;
     sqlx::query(
-        "INSERT INTO meeting_invitations (id, sender_id, recipient_id, activity_id, template, proposed_at, place, message, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        "INSERT INTO meeting_invitations (id, sender_id, recipient_id, activity_id, conversation_id, template, proposed_at, place, message, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
     )
     .bind(id)
     .bind(sender_id)
     .bind(request.recipient_id)
     .bind(request.activity_id)
-    .bind(request.template)
-    .bind(request.proposed_at)
-    .bind(clean(request.place))
-    .bind(clean(request.message))
+    .bind(conversation_id)
+    .bind(&template)
+    .bind(proposed_at)
+    .bind(&place)
+    .bind(&message)
     .bind(expires_at)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(AppError::internal)?;
+    sqlx::query(
+        "INSERT INTO chat_messages (id, conversation_id, sender_id, kind, body) VALUES ($1,$2,$3,'invitation',$4)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(conversation_id)
+    .bind(sender_id)
+    .bind(invitation_chat_body(
+        &sender_name,
+        &template,
+        proposed_at,
+        place.as_deref(),
+        message.as_deref(),
+    ))
+    .execute(&mut *tx)
+    .await
+    .map_err(AppError::internal)?;
+    tx.commit().await.map_err(AppError::internal)?;
     let invitation = invitation_by_id(&state, sender_id, id).await?;
     notifications::emit(
         &state,
@@ -557,21 +596,24 @@ pub async fn decide_invitation(
         }
     };
     let mut tx = state.db.begin().await.map_err(AppError::internal)?;
-    let parties: Option<(Uuid, Uuid, String)> = sqlx::query_as(
-        "SELECT sender_id, recipient_id, template FROM meeting_invitations WHERE id = $1 AND recipient_id = $2 AND status = 'pending' AND expires_at > NOW() FOR UPDATE",
+    let parties: Option<(Uuid, Uuid, String, Option<Uuid>)> = sqlx::query_as(
+        "SELECT sender_id, recipient_id, template, conversation_id FROM meeting_invitations WHERE id = $1 AND recipient_id = $2 AND status = 'pending' AND expires_at > NOW() FOR UPDATE",
     )
     .bind(invitation_id)
     .bind(viewer_id)
     .fetch_optional(&mut *tx)
     .await
     .map_err(AppError::internal)?;
-    let (sender_id, recipient_id, template) = parties.ok_or_else(|| AppError {
-        status: StatusCode::CONFLICT,
-        code: "INVITATION_NOT_PENDING",
-        message: "Приглашение уже обработано или истекло".into(),
-        fields: None,
-    })?;
-    let conversation_id = if status == "accepted" {
+    let (sender_id, recipient_id, template, existing_conversation_id) =
+        parties.ok_or_else(|| AppError {
+            status: StatusCode::CONFLICT,
+            code: "INVITATION_NOT_PENDING",
+            message: "Приглашение уже обработано или истекло".into(),
+            fields: None,
+        })?;
+    let conversation_id = if let Some(conversation_id) = existing_conversation_id {
+        conversation_id
+    } else {
         let conversation_id = Uuid::new_v4();
         sqlx::query("INSERT INTO conversations (id, kind, title) VALUES ($1, 'meeting', $2)")
             .bind(conversation_id)
@@ -581,26 +623,31 @@ pub async fn decide_invitation(
             .map_err(AppError::internal)?;
         add_member(&mut tx, conversation_id, sender_id).await?;
         add_member(&mut tx, conversation_id, recipient_id).await?;
-        sqlx::query("INSERT INTO chat_messages (id, conversation_id, sender_id, kind, body) VALUES ($1,$2,$3,'system',$4)")
-            .bind(Uuid::new_v4())
-            .bind(conversation_id)
-            .bind(viewer_id)
-            .bind("Приглашение принято. Теперь выберите удобные место и время вместе.")
-            .execute(&mut *tx)
-            .await
-            .map_err(AppError::internal)?;
-        Some(conversation_id)
-    } else {
-        None
+        conversation_id
     };
+    let status_message = match status {
+        "accepted" => "Приглашение принято. Теперь выберите удобные место и время вместе.",
+        "countered" => "Предложено изменить место или время встречи.",
+        _ => "Приглашение отклонено.",
+    };
+    sqlx::query("INSERT INTO chat_messages (id, conversation_id, sender_id, kind, body) VALUES ($1,$2,$3,'system',$4)")
+        .bind(Uuid::new_v4())
+        .bind(conversation_id)
+        .bind(viewer_id)
+        .bind(status_message)
+        .execute(&mut *tx)
+        .await
+        .map_err(AppError::internal)?;
     sqlx::query("UPDATE meeting_invitations SET status = $2, conversation_id = $3, updated_at = NOW() WHERE id = $1")
         .bind(invitation_id)
         .bind(status)
-        .bind(conversation_id)
+        .bind(Some(conversation_id))
         .execute(&mut *tx)
         .await
         .map_err(AppError::internal)?;
     tx.commit().await.map_err(AppError::internal)?;
+    notifications::resolve_entity_action(&state, viewer_id, "invitation", invitation_id, status)
+        .await?;
     let invitation = invitation_by_id(&state, viewer_id, invitation_id).await?;
     notifications::emit(
         &state,
@@ -626,13 +673,9 @@ pub async fn decide_invitation(
                 ),
                 _ => format!("{} не сможет присоединиться", invitation.recipient_name),
             },
-            entity_type: conversation_id
-                .map(|_| "conversation")
-                .or(Some("invitation")),
-            entity_id: conversation_id.or(Some(invitation_id)),
-            action_path: conversation_id
-                .map(|id| format!("gonow://chats/{id}"))
-                .or_else(|| Some(format!("gonow://invitations/{invitation_id}"))),
+            entity_type: Some("conversation"),
+            entity_id: Some(conversation_id),
+            action_path: Some(format!("gonow://chats/{conversation_id}")),
             payload: serde_json::json!({"status": status}),
             dedupe_key: Some(format!("invitation-response:{invitation_id}:{status}")),
         },
@@ -1069,6 +1112,8 @@ pub async fn upload_attachment(
     let extension = safe_extension(&file_name, &content_type);
     let object_key = storage.chat_object_key(conversation_id, message_id, &extension);
     let bytes = i32::try_from(data.len()).map_err(AppError::internal)?;
+    let cacheable_data =
+        (data.len() <= state.config.redis_media_cache_max_bytes).then(|| data.clone());
     storage
         .put_image(&object_key, &content_type, data)
         .await
@@ -1097,6 +1142,15 @@ pub async fn upload_attachment(
             warn!(error = %cleanup_error, %object_key, "failed to remove unattached chat object");
         }
         return Err(AppError::internal(error));
+    }
+    if let Some(data) = cacheable_data {
+        cache::set_bytes(
+            &state,
+            &chat_attachment_cache_key(&object_key),
+            &data,
+            state.config.redis_media_cache_ttl_seconds,
+        )
+        .await;
     }
     sqlx::query("UPDATE conversations SET updated_at = NOW() WHERE id = $1")
         .bind(conversation_id)
@@ -1130,16 +1184,48 @@ pub async fn download_attachment(
         message: "Вложение не найдено".into(),
         fields: None,
     })?;
-    let storage = state.object_storage.clone().ok_or_else(|| AppError {
-        status: StatusCode::SERVICE_UNAVAILABLE,
-        code: "OBJECT_STORAGE_UNAVAILABLE",
-        message: "Хранилище вложений пока не настроено".into(),
-        fields: None,
-    })?;
-    let (content_type, data) = storage.get_image(&object_key).await.map_err(|error| {
-        warn!(error = %error, %message_id, "chat attachment download failed");
-        AppError::service_unavailable()
-    })?;
+    let etag = format!("\"chat-attachment-{message_id}\"");
+    let etag_header = HeaderValue::from_str(&etag).map_err(AppError::internal)?;
+    let is_not_modified = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| etag_value_matches(value, &etag));
+    if is_not_modified {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        response.headers_mut().insert(header::ETAG, etag_header);
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(CHAT_ATTACHMENT_CACHE_CONTROL),
+        );
+        return Ok(response);
+    }
+
+    let cache_key = chat_attachment_cache_key(&object_key);
+    let (content_type, data) = if let Some(data) = cache::get_bytes(&state, &cache_key).await {
+        (stored_content_type.clone(), data)
+    } else {
+        let storage = state.object_storage.clone().ok_or_else(|| AppError {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "OBJECT_STORAGE_UNAVAILABLE",
+            message: "Хранилище вложений пока не настроено".into(),
+            fields: None,
+        })?;
+        let (content_type, data) = storage.get_image(&object_key).await.map_err(|error| {
+            warn!(error = %error, %message_id, "chat attachment download failed");
+            AppError::service_unavailable()
+        })?;
+        if data.len() <= state.config.redis_media_cache_max_bytes {
+            cache::set_bytes(
+                &state,
+                &cache_key,
+                &data,
+                state.config.redis_media_cache_ttl_seconds,
+            )
+            .await;
+        }
+        (content_type, data)
+    };
     let content_type = HeaderValue::from_str(if content_type.is_empty() {
         &stored_content_type
     } else {
@@ -1157,7 +1243,12 @@ pub async fn download_attachment(
             (header::CONTENT_DISPOSITION, disposition),
             (
                 header::CACHE_CONTROL,
-                HeaderValue::from_static("private, max-age=3600"),
+                HeaderValue::from_static(CHAT_ATTACHMENT_CACHE_CONTROL),
+            ),
+            (header::ETAG, etag_header),
+            (
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
             ),
         ],
         Body::from(data),
@@ -1295,6 +1386,16 @@ fn attachment_limit(kind: &str) -> usize {
     }
 }
 
+fn chat_attachment_cache_key(object_key: &str) -> String {
+    format!("cache:chat-attachment:v1:{object_key}")
+}
+
+fn etag_value_matches(value: &str, etag: &str) -> bool {
+    value
+        .split(',')
+        .any(|candidate| matches!(candidate.trim(), "*") || candidate.trim() == etag)
+}
+
 fn attachment_content_type_is_valid(kind: &str, content_type: &str) -> bool {
     match kind {
         "image" => content_type.starts_with("image/"),
@@ -1411,6 +1512,32 @@ fn clean(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn invitation_chat_body(
+    sender_name: &str,
+    template: &str,
+    proposed_at: Option<DateTime<Utc>>,
+    place: Option<&str>,
+    message: Option<&str>,
+) -> String {
+    let mut lines = vec![format!(
+        "{sender_name} приглашает: {}",
+        template_title(template)
+    )];
+    if let Some(proposed_at) = proposed_at {
+        lines.push(format!(
+            "Когда: {}",
+            proposed_at.format("%d.%m.%Y %H:%M UTC")
+        ));
+    }
+    if let Some(place) = place {
+        lines.push(format!("Где: {place}"));
+    }
+    if let Some(message) = message {
+        lines.push(message.to_owned());
+    }
+    lines.join("\n")
+}
+
 fn template_title(value: &str) -> &'static str {
     match value {
         "walk" => "Прогулка",
@@ -1461,5 +1588,26 @@ mod tests {
         assert_eq!(safe_file_name("  "), "attachment");
         assert_eq!(safe_extension("photo.JPEG", "image/jpeg"), "jpeg");
         assert_eq!(safe_extension("photo.bad-extension!", "image/png"), "png");
+    }
+
+    #[test]
+    fn chat_attachment_cache_keys_are_versioned_and_object_scoped() {
+        assert_eq!(
+            chat_attachment_cache_key("gonow/chat/one/photo.jpg"),
+            "cache:chat-attachment:v1:gonow/chat/one/photo.jpg"
+        );
+        assert_ne!(
+            chat_attachment_cache_key("gonow/chat/one/photo.jpg"),
+            chat_attachment_cache_key("gonow/chat/two/photo.jpg")
+        );
+    }
+
+    #[test]
+    fn chat_attachment_etags_support_browser_revalidation() {
+        let etag = "\"chat-attachment-123\"";
+        assert!(etag_value_matches(etag, etag));
+        assert!(etag_value_matches("\"old\", \"chat-attachment-123\"", etag));
+        assert!(etag_value_matches("*", etag));
+        assert!(!etag_value_matches("\"different\"", etag));
     }
 }

@@ -49,7 +49,6 @@ struct ProfileSetupFlow: View {
     @State private var birthDate: Date
     @State private var city: String
     @State private var occupation: String
-    @State private var relationshipStatus: String
     @State private var interests: String
     @State private var bio: String
     @State private var locationLabel: String
@@ -62,7 +61,7 @@ struct ProfileSetupFlow: View {
     @StateObject private var locationPicker = ProfileLocationPicker()
 
     private enum SetupField: Hashable {
-        case city, occupation, relationshipStatus, interests, location
+        case city, occupation, interests, location
     }
 
     init(user: CurrentUser) {
@@ -70,7 +69,6 @@ struct ProfileSetupFlow: View {
         _birthDate = State(initialValue: Calendar.current.date(byAdding: .year, value: -25, to: .now) ?? .now)
         _city = State(initialValue: user.city ?? "")
         _occupation = State(initialValue: user.occupation ?? "")
-        _relationshipStatus = State(initialValue: user.relationshipStatus ?? "")
         _interests = State(initialValue: (user.interests ?? []).joined(separator: ", "))
         _bio = State(initialValue: user.bio ?? "")
         _locationLabel = State(initialValue: user.locationLabel ?? "")
@@ -162,7 +160,6 @@ struct ProfileSetupFlow: View {
                         .foregroundStyle(AppColors.textSecondary)
                     setupField(L10n.string("profile.field.city"), text: $city, field: .city, contentType: .addressCity)
                     setupField(L10n.string("profile.field.occupation"), text: $occupation, field: .occupation)
-                    setupField(L10n.string("profile.field.relationship"), text: $relationshipStatus, field: .relationshipStatus)
                 }
             }
         case 2:
@@ -283,7 +280,7 @@ struct ProfileSetupFlow: View {
             languages: user.languages ?? [],
             availability: user.availability,
             preferredGroupSize: user.preferredGroupSize,
-            relationshipStatus: relationshipStatus.nilIfEmpty,
+            relationshipStatus: nil,
             locationLabel: locationLabel.nilIfEmpty,
             latitude: latitude,
             longitude: longitude,

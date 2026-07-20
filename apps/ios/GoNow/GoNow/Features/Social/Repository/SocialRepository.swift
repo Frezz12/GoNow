@@ -45,8 +45,11 @@ actor SocialRepository {
         return response.data
     }
 
-    func removeFriend(_ userID: UUID) async throws {
-        try await api.delete("social/friends/\(userID.uuidString)")
+    func removeFriend(_ userID: UUID) async throws -> SocialUser {
+        let response: APIEnvelope<SocialUser> = try await api.deleteDecodable(
+            "social/friends/\(userID.uuidString)"
+        )
+        return response.data
     }
 
     func invitations() async throws -> [MeetingInvitation] {

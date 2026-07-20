@@ -104,9 +104,12 @@ struct ProfileTabView: View {
                 Text(appState.sessionError ?? "")
             }
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    profileNotificationsButton
-                    profileSettingsButton
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: AppSpacing.xxs) {
+                        profileNotificationsButton
+                        profileSettingsButton
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .navigationDestination(isPresented: $isSettingsPresented) {
@@ -143,7 +146,7 @@ struct ProfileTabView: View {
                         .frame(minWidth: 18, minHeight: 18)
                         .background(AppColors.error, in: Capsule())
                         .overlay { Capsule().strokeBorder(AppColors.glassHighlight, lineWidth: 1) }
-                        .offset(x: 3, y: 2)
+                        .offset(x: -1, y: 1)
                         .accessibilityHidden(true)
                 }
             }
@@ -230,7 +233,6 @@ private struct ProfileAboutDisclosure: View {
         user.birthDateAndAgeText != nil
             || user.profileLocationText != nil
             || user.occupation?.nonEmpty != nil
-            || user.relationshipStatus?.nonEmpty != nil
             || user.availability?.nonEmpty != nil
             || user.preferredGroupSizeText != nil
             || user.bio?.nonEmpty != nil
@@ -292,7 +294,6 @@ private struct ProfileDetailsGrid: View {
     var body: some View {
         let fields = [
             DetailField(icon: "briefcase.fill", title: L10n.string("profile.occupation.title"), value: user.occupation?.nonEmpty),
-            DetailField(icon: "heart.text.square", title: L10n.string("profile.relationship.title"), value: user.relationshipStatus?.nonEmpty),
             DetailField(icon: "clock.fill", title: L10n.string("profile.availability.title"), value: user.availability?.nonEmpty),
             DetailField(icon: "person.3.fill", title: L10n.string("profile.group.title"), value: user.preferredGroupSizeText),
         ].filter { $0.value != nil }

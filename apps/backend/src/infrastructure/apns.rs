@@ -4,7 +4,7 @@ use chrono::Utc;
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -38,6 +38,7 @@ pub struct ApnsPush<'a> {
     pub entity_type: Option<&'a str>,
     pub entity_id: Option<Uuid>,
     pub action_path: Option<&'a str>,
+    pub payload: &'a Value,
     pub sound: bool,
 }
 
@@ -92,6 +93,9 @@ impl ApnsClient {
         if push.sound {
             aps["sound"] = json!("default");
         }
+        if let Some(category) = notification_action_category(push.kind) {
+            aps["category"] = json!(category);
+        }
         let payload = json!({
             "aps": aps,
             "notificationId": push.notification_id,
@@ -99,7 +103,8 @@ impl ApnsClient {
             "kind": push.kind,
             "entityType": push.entity_type,
             "entityId": push.entity_id,
-            "actionPath": push.action_path
+            "actionPath": push.action_path,
+            "notificationPayload": push.payload
         });
         let response = self
             .http
@@ -164,6 +169,15 @@ impl ApnsClient {
     }
 }
 
+fn notification_action_category(kind: &str) -> Option<&'static str> {
+    match kind {
+        "friend_request" => Some("GONOW_FRIEND_REQUEST"),
+        "invitation" => Some("GONOW_INVITATION"),
+        "activity_application" => Some("GONOW_ACTIVITY_APPLICATION"),
+        _ => None,
+    }
+}
+
 fn apns_host(environment: &str) -> &'static str {
     if environment == "production" {
         "https://api.push.apple.com"
@@ -180,5 +194,18 @@ mod tests {
     fn sandbox_and_production_hosts_are_selected_explicitly() {
         assert_eq!(apns_host("sandbox"), "https://api.sandbox.push.apple.com");
         assert_eq!(apns_host("production"), "https://api.push.apple.com");
+    }
+
+    #[test]
+    fn actionable_notifications_have_apns_categories() {
+        assert_eq!(
+            notification_action_category("friend_request"),
+            Some("GONOW_FRIEND_REQUEST")
+        );
+        assert_eq!(
+            notification_action_category("activity_application"),
+            Some("GONOW_ACTIVITY_APPLICATION")
+        );
+        assert_eq!(notification_action_category("new_message"), None);
     }
 }

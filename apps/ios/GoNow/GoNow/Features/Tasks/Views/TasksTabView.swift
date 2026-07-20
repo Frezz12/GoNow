@@ -18,16 +18,20 @@ final class ActivitiesListViewModel: ObservableObject {
 
     private let repository: any MapActivityRepository
     private var activities: [MapActivity] = []
+    private var loadGeneration = 0
 
     init(repository: any MapActivityRepository) {
         self.repository = repository
     }
 
-    func load(userCoordinate: CLLocationCoordinate2D?) async {
-        guard !isLoading else { return }
+    func load(
+        userCoordinate: CLLocationCoordinate2D?,
+        filters: MapFilterState = MapFilterState()
+    ) async {
+        loadGeneration += 1
+        let generation = loadGeneration
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
 
         let center = userCoordinate.map(MapCoordinate.init) ?? .moscow
         let viewport = MapViewport(
@@ -37,11 +41,15 @@ final class ActivitiesListViewModel: ObservableObject {
         )
 
         do {
-            activities = try await repository.activities(in: viewport, filters: MapFilterState()).activities
+            let page = try await repository.activities(in: viewport, filters: filters)
+            guard generation == loadGeneration else { return }
+            activities = page.activities
             updateDistances(from: userCoordinate)
         } catch {
+            guard generation == loadGeneration else { return }
             errorMessage = error.localizedDescription
         }
+        if generation == loadGeneration { isLoading = false }
     }
 
     func updateDistances(from userCoordinate: CLLocationCoordinate2D?) {
@@ -81,11 +89,76 @@ final class ActivitiesListViewModel: ObservableObject {
     }
 }
 
+@MainActor
+final class ManagedActivitiesViewModel: ObservableObject {
+    @Published private(set) var created: [GoNowActivity] = []
+    @Published private(set) var participating: [GoNowActivity] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
+
+    private let repository: any ActivityRepository
+
+    init(repository: any ActivityRepository) {
+        self.repository = repository
+    }
+
+    func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            async let createdRequest = repository.ownedActivities()
+            async let participatingRequest = repository.participatingActivities()
+            let (created, participating) = try await (createdRequest, participatingRequest)
+            self.created = Self.sorted(created)
+            self.participating = Self.sorted(participating)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private static func sorted(_ activities: [GoNowActivity]) -> [GoNowActivity] {
+        activities.sorted { lhs, rhs in
+            let leftFinished = lhs.status == .completed || lhs.status == .cancelled || lhs.status == .expired
+            let rightFinished = rhs.status == .completed || rhs.status == .cancelled || rhs.status == .expired
+            if leftFinished != rightFinished { return !leftFinished }
+            return leftFinished ? lhs.startsAt > rhs.startsAt : lhs.startsAt < rhs.startsAt
+        }
+    }
+}
+
+private enum ActivitiesSection: String, CaseIterable, Identifiable {
+    case created
+    case participating
+    case discover
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .created: "Мои"
+        case .participating: "Участвую"
+        case .discover: "Найти"
+        }
+    }
+}
+
+private struct ActivityChatTarget: Identifiable, Hashable {
+    let id: UUID
+    let title: String
+}
+
 struct ActivitiesTabView: View {
     @ObservedObject var location: DeviceLocationProvider
     @StateObject private var model: ActivitiesListViewModel
+    @StateObject private var managedModel: ManagedActivitiesViewModel
+    @State private var section: ActivitiesSection = .created
     @State private var searchQuery = ""
+    @State private var filters = MapFilterState()
+    @State private var isFiltersPresented = false
     @State private var detailActivityID: UUID?
+    @State private var chatTarget: ActivityChatTarget?
     private let detailRepository: any ActivityRepository
 
     init(
@@ -96,6 +169,7 @@ struct ActivitiesTabView: View {
         self.location = location
         self.detailRepository = detailRepository
         _model = StateObject(wrappedValue: ActivitiesListViewModel(repository: mapRepository))
+        _managedModel = StateObject(wrappedValue: ManagedActivitiesViewModel(repository: detailRepository))
     }
 
     var body: some View {
@@ -105,7 +179,10 @@ struct ActivitiesTabView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: AppSpacing.md) {
                         header
-                        locationStatus
+                        if section == .discover {
+                            discoveryControls
+                            locationStatus
+                        }
                         content
                     }
                     .frame(maxWidth: AppLayout.maxContentWidth, alignment: .leading)
@@ -114,15 +191,19 @@ struct ActivitiesTabView: View {
                     .padding(.bottom, AppLayout.bottomNavigationClearance)
                 }
                 .refreshable {
-                    await model.load(userCoordinate: location.coordinate)
+                    await reloadSelectedSection()
                 }
+            }
+            .navigationDestination(item: $chatTarget) { target in
+                ChatConversationView(conversationID: target.id, title: target.title)
             }
         }
         .task {
             if location.coordinate == nil {
                 location.requestCurrentLocation()
             }
-            await model.load(userCoordinate: location.coordinate)
+            await managedModel.load()
+            await model.load(userCoordinate: location.coordinate, filters: filters)
         }
         .onChange(of: location.updateSequence) { _, _ in
             model.updateDistances(from: location.coordinate)
@@ -133,6 +214,13 @@ struct ActivitiesTabView: View {
         )) {
             if let detailActivityID {
                 ActivityDetailView(activityID: detailActivityID, repository: detailRepository)
+            }
+        }
+        .sheet(isPresented: $isFiltersPresented) {
+            MapFilterSheet(filters: filters) { newFilters in
+                filters = newFilters
+                isFiltersPresented = false
+                Task { await model.load(userCoordinate: location.coordinate, filters: newFilters) }
             }
         }
     }
@@ -155,6 +243,18 @@ struct ActivitiesTabView: View {
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textSecondary)
 
+            Picker("Раздел активностей", selection: $section) {
+                ForEach(ActivitiesSection.allCases) { value in
+                    Text(value.title).tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Раздел активностей")
+        }
+    }
+
+    private var discoveryControls: some View {
+        HStack(spacing: AppSpacing.sm) {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppColors.textSecondary)
@@ -174,6 +274,26 @@ struct ActivitiesTabView: View {
             .padding(.leading, AppSpacing.md)
             .frame(minHeight: 52)
             .liquidGlassField(isInvalid: false, isFocused: !searchQuery.isEmpty)
+
+            Button { isFiltersPresented = true } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: filters.isEmpty ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(filters.isEmpty ? AppColors.textPrimary : GoNowTheme.primary)
+                        .frame(width: 52, height: 52)
+                        .glassSurface(.regular, cornerRadius: 26)
+                    if filters.activeCount > 0 {
+                        Text("\(filters.activeCount)")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(AppColors.error, in: Circle())
+                            .offset(x: 2, y: -2)
+                    }
+                }
+            }
+            .buttonStyle(AppPressButtonStyle())
+            .accessibilityLabel("Фильтры активностей")
         }
     }
 
@@ -214,22 +334,65 @@ struct ActivitiesTabView: View {
 
     @ViewBuilder
     private var content: some View {
-        if model.isLoading && model.items.isEmpty {
-            HStack(spacing: AppSpacing.sm) {
-                ProgressView()
-                Text("activities.loading")
-                    .foregroundStyle(AppColors.textSecondary)
-            }
-            .frame(maxWidth: .infinity, minHeight: 180)
-        } else if let errorMessage = model.errorMessage, model.items.isEmpty {
+        switch section {
+        case .created:
+            managedContent(
+                activities: managedModel.created,
+                emptyTitle: "Вы ещё не создавали активности",
+                emptyMessage: "Созданные активности, включая завершённые, будут храниться здесь."
+            )
+        case .participating:
+            managedContent(
+                activities: managedModel.participating,
+                emptyTitle: "Нет активностей с вашим участием",
+                emptyMessage: "Найдите подходящую активность и присоединитесь — после принятия здесь появится доступ к чату."
+            )
+        case .discover:
+            discoveryContent
+        }
+    }
+
+    @ViewBuilder
+    private func managedContent(
+        activities: [GoNowActivity],
+        emptyTitle: String,
+        emptyMessage: String
+    ) -> some View {
+        if managedModel.isLoading && activities.isEmpty {
+            loadingView
+        } else if let errorMessage = managedModel.errorMessage, activities.isEmpty {
+            errorView(errorMessage) { await managedModel.load() }
+        } else if activities.isEmpty {
             ContentUnavailableView {
-                Label("activities.error.title", systemImage: "exclamationmark.triangle")
+                Label(emptyTitle, systemImage: "figure.walk.circle")
             } description: {
-                Text(errorMessage)
+                Text(emptyMessage)
             } actions: {
-                Button("common.retry") {
-                    Task { await model.load(userCoordinate: location.coordinate) }
-                }
+                Button("Найти активности") { section = .discover }
+                    .buttonStyle(.borderedProminent)
+                    .clipShape(Capsule())
+            }
+        } else {
+            ForEach(activities) { activity in
+                ManagedActivityCard(
+                    activity: activity,
+                    distanceMeters: distance(to: activity),
+                    open: { detailActivityID = activity.id },
+                    openChat: activity.chatConversationID.map { conversationID in
+                        { chatTarget = ActivityChatTarget(id: conversationID, title: activity.title) }
+                    }
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var discoveryContent: some View {
+        if model.isLoading && model.items.isEmpty {
+            loadingView
+        } else if let errorMessage = model.errorMessage, model.items.isEmpty {
+            errorView(errorMessage) {
+                await model.load(userCoordinate: location.coordinate, filters: filters)
             }
         } else if filteredItems.isEmpty {
             ContentUnavailableView {
@@ -249,8 +412,128 @@ struct ActivitiesTabView: View {
         }
     }
 
+    private var loadingView: some View {
+        HStack(spacing: AppSpacing.sm) {
+            ProgressView()
+            Text("activities.loading")
+                .foregroundStyle(AppColors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 180)
+    }
+
+    private func errorView(
+        _ message: String,
+        retry: @escaping @MainActor () async -> Void
+    ) -> some View {
+        ContentUnavailableView {
+            Label("activities.error.title", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("common.retry") { Task { await retry() } }
+        }
+    }
+
+    private func distance(to activity: GoNowActivity) -> CLLocationDistance? {
+        guard let coordinate = location.coordinate else { return nil }
+        return CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            .distance(from: CLLocation(
+                latitude: activity.location.coordinate.latitude,
+                longitude: activity.location.coordinate.longitude
+            ))
+    }
+
+    private func reloadSelectedSection() async {
+        switch section {
+        case .created, .participating:
+            await managedModel.load()
+        case .discover:
+            await model.load(userCoordinate: location.coordinate, filters: filters)
+        }
+    }
+
     private var locationNeedsSettings: Bool {
         location.authorizationStatus == .denied || location.authorizationStatus == .restricted
+    }
+}
+
+private struct ManagedActivityCard: View {
+    let activity: GoNowActivity
+    let distanceMeters: CLLocationDistance?
+    let open: () -> Void
+    let openChat: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.md) {
+            Button(action: open) {
+                HStack(alignment: .top, spacing: AppSpacing.md) {
+                    Image(systemName: activity.category.symbol)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                        .background(activity.category.listTint, in: Circle())
+
+                    VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                        Text(activity.title)
+                            .font(AppTypography.cardTitle)
+                            .foregroundStyle(AppColors.textPrimary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+                        HStack(spacing: AppSpacing.xs) {
+                            Text(LocalizedStringKey(activity.category.titleKey))
+                                .foregroundStyle(activity.category.listTint)
+                            Text("•")
+                            Text(LocalizedStringKey(activity.status.titleKey))
+                                .foregroundStyle(statusColor)
+                        }
+                        .font(AppTypography.captionStrong)
+                        Label(activity.startsAt.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
+                        Label(distanceText, systemImage: distanceMeters == nil ? "location.slash" : "location.fill")
+                            .foregroundStyle(distanceMeters == nil ? AppColors.textMuted : AppColors.locationAccent)
+                    }
+                    .font(AppTypography.caption)
+                    .foregroundStyle(AppColors.textSecondary)
+
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppColors.textMuted)
+                        .frame(minHeight: AppLayout.minimumTouchTarget)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if let openChat {
+                Divider().opacity(0.5)
+                Button(action: openChat) {
+                    Label("Открыть чат активности", systemImage: "bubble.left.and.bubble.right.fill")
+                        .font(AppTypography.bodyMedium)
+                        .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTouchTarget)
+                }
+                .buttonStyle(GlassInlineButtonStyle())
+            }
+        }
+        .padding(AppSpacing.md)
+        .glassSurface(.regular, cornerRadius: AppRadius.card)
+    }
+
+    private var statusColor: Color {
+        switch activity.status {
+        case .completed: AppColors.success
+        case .cancelled, .blocked: AppColors.error
+        case .expired, .hidden: AppColors.textMuted
+        default: GoNowTheme.primary
+        }
+    }
+
+    private var distanceText: String {
+        guard let distanceMeters else { return L10n.string("activities.distance.unavailable.short") }
+        if distanceMeters < 1_000 {
+            return Measurement(value: max(0, distanceMeters), unit: UnitLength.meters)
+                .formatted(.measurement(width: .abbreviated, usage: .road))
+        }
+        return AppFormatters.distance(kilometers: max(0, distanceMeters) / 1_000)
     }
 }
 

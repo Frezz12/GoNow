@@ -19,6 +19,7 @@ final class AppState: ObservableObject {
     @Published private(set) var isOptionalProfileNoticeDismissed = false
     @Published private(set) var isProfileSetupStarted = false
     @Published private(set) var unreadNotificationCount = 0
+    @Published private(set) var unreadChatCount = 0
 
     private let repository: AuthRepository
     private let profileMediaRepository: ProfileMediaRepository
@@ -293,6 +294,9 @@ final class AppState: ObservableObject {
                         guard !Task.isCancelled else { return }
                         retryDelay = .seconds(1)
                         self?.applyUnreadNotificationCount(event.unreadCount)
+                        if event.kind == "new_message" {
+                            await self?.reloadChatUnreadCount()
+                        }
                     }
                 } catch is CancellationError {
                     return
@@ -322,6 +326,51 @@ final class AppState: ObservableObject {
         unreadNotificationCount = normalized
         let badge = unreadNotificationCount
         Task { try? await UNUserNotificationCenter.current().setBadgeCount(badge) }
+    }
+
+    func reloadChatUnreadCount() async {
+        guard phase == .authenticated else { return }
+        do {
+            let conversations = try await socialRepository.conversations()
+            unreadChatCount = conversations.reduce(0) { $0 + max(0, $1.unreadCount) }
+        } catch {
+            _ = await invalidateSessionIfNeeded(error)
+        }
+    }
+
+    func applyUnreadChatCount(_ count: Int) {
+        unreadChatCount = max(0, count)
+    }
+
+    func performPushAction(_ action: PushNotificationAction) async {
+        guard phase == .authenticated else { return }
+        do {
+            switch action.kind {
+            case "friend_request":
+                _ = try await socialRepository.decideFriend(
+                    action.entityID,
+                    action: action.decision.rawValue
+                )
+            case "invitation":
+                _ = try await socialRepository.decideInvitation(
+                    action.entityID,
+                    action: action.decision.rawValue
+                )
+            case "activity_application":
+                guard let applicationID = action.applicationID else { return }
+                _ = try await activityRepository.updateApplication(
+                    activityID: action.entityID,
+                    applicationID: applicationID,
+                    status: action.decision == .accept ? .accepted : .rejected
+                )
+            default:
+                return
+            }
+            await reloadNotificationCount()
+            await reloadChatUnreadCount()
+        } catch {
+            sessionError = error.localizedDescription
+        }
     }
 
     func registerPushToken(_ token: String) async {
@@ -361,6 +410,7 @@ final class AppState: ObservableObject {
         isOptionalProfileNoticeDismissed = false
         isProfileSetupStarted = false
         sessionError = nil
+        unreadChatCount = 0
         phase = .unauthenticated
     }
 
@@ -369,6 +419,7 @@ final class AppState: ObservableObject {
         notificationEventsTask = nil
         Task { await notificationRepository.closeLiveEvents() }
         applyUnreadNotificationCount(0)
+        unreadChatCount = 0
     }
 
     private func restoreProfileSetupState() {

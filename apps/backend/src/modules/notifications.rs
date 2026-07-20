@@ -29,6 +29,7 @@ use super::users::active_user_id;
 #[serde(rename_all = "camelCase")]
 pub struct NotificationRealtimeEvent {
     pub event: String,
+    pub kind: Option<String>,
     pub recipient_id: Uuid,
     pub notification_id: Option<Uuid>,
     pub unread_count: i64,
@@ -150,7 +151,7 @@ pub async fn list(
         )
     });
     let sql = format!(
-        "{NOTIFICATION_SELECT} WHERE notification.recipient_id = $1 AND ($2::text IS NULL OR notification.category = $2) AND (NOT $3 OR notification.read_at IS NULL) ORDER BY notification.created_at DESC, notification.id DESC LIMIT $4"
+        "{NOTIFICATION_SELECT} WHERE notification.recipient_id = $1 AND notification.category <> 'messages' AND ($2::text IS NULL OR notification.category = $2) AND (NOT $3 OR notification.read_at IS NULL) ORDER BY notification.created_at DESC, notification.id DESC LIMIT $4"
     );
     let items = sqlx::query_as::<_, NotificationResponse>(&sql)
         .bind(user_id)
@@ -436,6 +437,7 @@ pub async fn emit(state: &AppState, draft: NotificationDraft) -> Result<(), AppE
     let unread_count = unread_count(state, draft.recipient_id).await?;
     let _ = state.notification_events.send(NotificationRealtimeEvent {
         event: "notification".into(),
+        kind: Some(draft.kind.into()),
         recipient_id: draft.recipient_id,
         notification_id: Some(inserted_id),
         unread_count,
@@ -472,7 +474,7 @@ async fn notification_by_id(
 
 async fn unread_count(state: &AppState, user_id: Uuid) -> Result<i64, AppError> {
     sqlx::query_scalar(
-        "SELECT COUNT(*) FROM notifications WHERE recipient_id = $1 AND read_at IS NULL",
+        "SELECT COUNT(*) FROM notifications WHERE recipient_id = $1 AND category <> 'messages' AND read_at IS NULL",
     )
     .bind(user_id)
     .fetch_one(&state.db)
@@ -501,6 +503,52 @@ pub async fn mark_entity_read(
     Ok(())
 }
 
+pub async fn resolve_entity_action(
+    state: &AppState,
+    user_id: Uuid,
+    entity_type: &str,
+    entity_id: Uuid,
+    status: &str,
+) -> Result<(), AppError> {
+    let changed = sqlx::query(
+        "UPDATE notifications SET read_at = COALESCE(read_at, NOW()), payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{status}', to_jsonb($4::text), true) WHERE recipient_id = $1 AND entity_type = $2 AND entity_id = $3",
+    )
+    .bind(user_id)
+    .bind(entity_type)
+    .bind(entity_id)
+    .bind(status)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    if changed.rows_affected() > 0 {
+        broadcast_count(state, user_id, None, "resolvedEntity").await?;
+    }
+    Ok(())
+}
+
+pub async fn resolve_activity_application(
+    state: &AppState,
+    user_id: Uuid,
+    activity_id: Uuid,
+    application_id: Uuid,
+    status: &str,
+) -> Result<(), AppError> {
+    let changed = sqlx::query(
+        "UPDATE notifications SET read_at = COALESCE(read_at, NOW()), payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{status}', to_jsonb($4::text), true) WHERE recipient_id = $1 AND entity_type = 'activity' AND entity_id = $2 AND payload ->> 'applicationId' = $3",
+    )
+    .bind(user_id)
+    .bind(activity_id)
+    .bind(application_id.to_string())
+    .bind(status)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    if changed.rows_affected() > 0 {
+        broadcast_count(state, user_id, None, "resolvedApplication").await?;
+    }
+    Ok(())
+}
+
 async fn broadcast_count(
     state: &AppState,
     user_id: Uuid,
@@ -510,6 +558,7 @@ async fn broadcast_count(
     let unread_count = unread_count(state, user_id).await?;
     let _ = state.notification_events.send(NotificationRealtimeEvent {
         event: event.into(),
+        kind: None,
         recipient_id: user_id,
         notification_id,
         unread_count,
@@ -581,6 +630,7 @@ async fn deliver_push(
                     entity_type: notification.entity_type.as_deref(),
                     entity_id: notification.entity_id,
                     action_path: notification.action_path.as_deref(),
+                    payload: &notification.payload,
                     sound: settings.sound_enabled,
                 },
             )

@@ -98,7 +98,6 @@ extension CurrentUser {
             && occupation?.nonEmpty == nil
             && bio?.nonEmpty == nil
             && interests?.isEmpty != false
-            && relationshipStatus?.nonEmpty == nil
             && locationLabel?.nonEmpty == nil
     }
     var age: Int? {

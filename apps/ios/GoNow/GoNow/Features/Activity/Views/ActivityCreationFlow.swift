@@ -7,10 +7,8 @@ struct ActivityCreationFlow: View {
     @ObservedObject private var location: DeviceLocationProvider
     @StateObject private var model: ActivityCreationViewModel
     @State private var selectedPhotos: [PhotosPickerItem] = []
-    @State private var locationMode: ActivityLocationMode = .address
-    @State private var addressQuery = ""
+    @State private var locationMode: ActivityLocationMode = .current
     @State private var isMapPickerPresented = false
-    @State private var isCurrentLocationConfirmationPresented = false
     @State private var isDiscardConfirmationPresented = false
     @State private var waitsForCurrentLocation = false
     let onComplete: (GoNowActivity) -> Void
@@ -61,10 +59,13 @@ struct ActivityCreationFlow: View {
         .interactiveDismissDisabled(true)
         .fullScreenCover(isPresented: $isMapPickerPresented) {
             ActivityLocationPickerMap(coordinate: mapCoordinateBinding.wrappedValue) { coordinate in
-                Task { await model.useCoordinate(coordinate) }
+                Task { await model.useCoordinate(coordinate, resolveAddress: false) }
             }
         }
-        .task { await model.restoreDraft() }
+        .task {
+            await model.restoreDraft()
+            if model.draft.location == nil { useCurrentLocation() }
+        }
         .onChange(of: locationMode) { _, mode in
             if mode == .map { isMapPickerPresented = true }
         }
@@ -82,13 +83,7 @@ struct ActivityCreationFlow: View {
             guard waitsForCurrentLocation,
                   let coordinate = location.coordinate.map(MapCoordinate.init) else { return }
             waitsForCurrentLocation = false
-            Task { await model.useCoordinate(coordinate) }
-        }
-        .alert("activity.location.current.confirm.title", isPresented: $isCurrentLocationConfirmationPresented) {
-            Button("activity.location.current.confirm.action") { confirmCurrentLocation() }
-            Button("common.cancel", role: .cancel) { }
-        } message: {
-            Text("activity.location.current.confirm.message")
+            Task { await model.useCoordinate(coordinate, resolveAddress: false) }
         }
         .alert("activity.discard.title", isPresented: $isDiscardConfirmationPresented) {
             Button("activity.discard.keep", role: .cancel) { }
@@ -178,9 +173,13 @@ struct ActivityCreationFlow: View {
                 if model.draft.photos.isEmpty {
                     ActivityCategoryFallbackCard(category: model.draft.category)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: AppSpacing.sm)], spacing: AppSpacing.sm) {
-                        ForEach(model.draft.photos) { photo in photoCard(photo) }
+                    ScrollView(.horizontal) {
+                        HStack(spacing: AppSpacing.sm) {
+                            ForEach(model.draft.photos) { photo in photoCard(photo) }
+                        }
+                        .padding(.vertical, AppSpacing.xxs)
                     }
+                    .scrollIndicators(.hidden)
                 }
 
                 PhotosPicker(
@@ -191,7 +190,8 @@ struct ActivityCreationFlow: View {
                     Label("activity.photos.add", systemImage: "photo.badge.plus")
                         .frame(maxWidth: .infinity, minHeight: 50)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(GradientPrimaryButtonStyle())
+                .clipShape(Capsule())
                 .disabled(model.draft.photos.count >= 6 || model.isProcessingPhotos)
 
                 if model.isProcessingPhotos {
@@ -203,32 +203,50 @@ struct ActivityCreationFlow: View {
     }
 
     private func photoCard(_ photo: ActivityDraftPhoto) -> some View {
-        VStack(spacing: AppSpacing.xs) {
-            if let image = UIImage(data: photo.data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(height: 126)
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.medium))
-                    .accessibilityLabel(photo.isCover ? "activity.photos.cover" : "activity.photos.item")
+        VStack(spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                if let image = UIImage(data: photo.data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 208, height: 156)
+                        .clipped()
+                        .accessibilityLabel(photo.isCover ? "activity.photos.cover" : "activity.photos.item")
+                }
+                if photo.isCover {
+                    Label("Обложка", systemImage: "star.fill")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, AppSpacing.sm)
+                        .padding(.vertical, AppSpacing.xs)
+                        .background(.black.opacity(0.5), in: Capsule())
+                        .padding(AppSpacing.sm)
+                }
             }
-            HStack(spacing: AppSpacing.xxs) {
+
+            HStack(spacing: 0) {
                 Button { model.movePhoto(id: photo.id, direction: -1) } label: {
-                    Image(systemName: "arrow.left")
+                    Image(systemName: "chevron.left").frame(width: 44, height: 44)
                 }
                 Button { model.movePhoto(id: photo.id, direction: 1) } label: {
-                    Image(systemName: "arrow.right")
+                    Image(systemName: "chevron.right").frame(width: 44, height: 44)
                 }
                 Button { model.makeCover(id: photo.id) } label: {
-                    Image(systemName: photo.isCover ? "star.fill" : "star")
+                    Image(systemName: photo.isCover ? "star.fill" : "star").frame(width: 44, height: 44)
                 }
                 Button(role: .destructive) { model.removePhoto(id: photo.id) } label: {
-                    Image(systemName: "trash")
+                    Image(systemName: "trash").frame(width: 44, height: 44)
                 }
             }
-            .buttonStyle(.borderless)
-            .frame(minHeight: AppLayout.minimumTouchTarget)
+            .frame(maxWidth: .infinity)
+            .buttonStyle(.plain)
+        }
+        .frame(width: 208)
+        .background(AppColors.surfaceElevated.opacity(0.9))
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.card, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: AppRadius.card, style: .continuous)
+                .stroke(photo.isCover ? AppColors.accentPrimary : AppColors.textMuted.opacity(0.16), lineWidth: photo.isCover ? 2 : 1)
         }
     }
 
@@ -236,15 +254,13 @@ struct ActivityCreationFlow: View {
         VStack(spacing: AppSpacing.lg) {
             ActivityFormSection("activity.location.title", subtitleKey: "activity.location.subtitle") {
                 Picker("activity.location.mode.label", selection: $locationMode) {
-                    ForEach(ActivityLocationMode.allCases) { mode in
+                    ForEach([ActivityLocationMode.current, .map]) { mode in
                         Text(LocalizedStringKey(mode.titleKey)).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
 
                 switch locationMode {
-                case .address:
-                    addressSearch
                 case .map:
                     Button { isMapPickerPresented = true } label: {
                         HStack(spacing: AppSpacing.sm) {
@@ -255,31 +271,30 @@ struct ActivityCreationFlow: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 52)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(GradientPrimaryButtonStyle())
+                    .clipShape(Capsule())
                 case .current:
-                    Button { isCurrentLocationConfirmationPresented = true } label: {
+                    Button { useCurrentLocation() } label: {
                         Label("activity.location.current.action", systemImage: "location.fill")
                             .frame(maxWidth: .infinity, minHeight: 52)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(GradientPrimaryButtonStyle())
+                    .clipShape(Capsule())
                 }
 
                 if let location = model.draft.location {
-                    Label(location.address ?? L10n.string("activity.location.coordinate_ready"), systemImage: "checkmark.circle.fill")
-                        .font(AppTypography.captionStrong)
-                        .foregroundStyle(AppColors.success)
+                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                        Label("Точное местоположение выбрано", systemImage: "checkmark.circle.fill")
+                            .font(AppTypography.captionStrong)
+                            .foregroundStyle(AppColors.success)
+                        Text(String(format: "%.5f, %.5f", location.coordinate.latitude, location.coordinate.longitude))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(AppColors.textSecondary)
+                    }
                 }
             }
 
             ActivityFormSection("activity.location.details") {
-                TextField("activity.location.venue.placeholder", text: Binding(
-                    get: { model.draft.location?.venueName ?? "" },
-                    set: { model.draft.location?.venueName = $0 }
-                ))
-                .padding(.horizontal, AppSpacing.md)
-                .frame(minHeight: 50)
-                .liquidGlassField(isInvalid: false, isFocused: false)
-
                 Picker("activity.location.visibility.label", selection: Binding(
                     get: { model.draft.location?.visibility ?? .everyone },
                     set: { value in
@@ -294,106 +309,6 @@ struct ActivityCreationFlow: View {
                 }
             }
         }
-    }
-
-    private var addressSearch: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            HStack(spacing: AppSpacing.xs) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(AppColors.textSecondary)
-                    .accessibilityHidden(true)
-                TextField("activity.location.search.placeholder", text: $addressQuery)
-                    .textContentType(.fullStreetAddress)
-                    .textInputAutocapitalization(.words)
-                    .submitLabel(.search)
-                if !addressQuery.isEmpty {
-                    Button { addressQuery = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(AppColors.textSecondary)
-                            .frame(width: AppLayout.minimumTouchTarget, height: AppLayout.minimumTouchTarget)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("activity.location.search.clear")
-                }
-            }
-            .padding(.leading, AppSpacing.md)
-            .padding(.trailing, AppSpacing.xs)
-            .frame(minHeight: 52)
-            .liquidGlassField(isInvalid: false, isFocused: false)
-            .onChange(of: addressQuery) { _, value in model.searchLocations(query: value) }
-
-            if addressQuery.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
-                Label("activity.location.search.helper", systemImage: "text.cursor")
-                    .font(AppTypography.caption)
-                    .foregroundStyle(AppColors.textSecondary)
-                    .frame(minHeight: 36)
-            } else if model.isSearchingLocations || model.isResolvingLocation {
-                HStack(spacing: AppSpacing.xs) {
-                    ProgressView().controlSize(.small)
-                    Text("activity.location.searching")
-                }
-                .font(AppTypography.caption)
-                .foregroundStyle(AppColors.textSecondary)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            } else if model.hasSearchedLocations && model.locationSuggestions.isEmpty {
-                Label("activity.location.search.no_results", systemImage: "magnifyingglass")
-                    .font(AppTypography.caption)
-                    .foregroundStyle(AppColors.textSecondary)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            }
-
-            if !model.locationSuggestions.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(Array(model.locationSuggestions.enumerated()), id: \.element.id) { index, suggestion in
-                        Button {
-                            Task {
-                                if let resolvedAddress = await model.selectLocation(suggestion) {
-                                    addressQuery = resolvedAddress
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: AppSpacing.sm) {
-                                Image(systemName: "mappin.and.ellipse")
-                                    .foregroundStyle(AppColors.accentPrimary)
-                                    .frame(width: 24)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(suggestion.title)
-                                        .font(AppTypography.bodyMedium)
-                                        .foregroundStyle(AppColors.textPrimary)
-                                    if !suggestion.subtitle.isEmpty {
-                                        Text(suggestion.subtitle)
-                                            .font(AppTypography.caption)
-                                            .foregroundStyle(AppColors.textSecondary)
-                                            .lineLimit(2)
-                                    }
-                                }
-                                Spacer(minLength: AppSpacing.xs)
-                                Image(systemName: "chevron.right")
-                                    .font(AppTypography.captionStrong)
-                                    .foregroundStyle(AppColors.textSecondary)
-                            }
-                            .padding(.horizontal, AppSpacing.sm)
-                            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(model.isResolvingLocation)
-
-                        if index < model.locationSuggestions.count - 1 {
-                            Divider().padding(.leading, 48)
-                        }
-                    }
-                }
-                .padding(.vertical, AppSpacing.xxs)
-                .background(AppColors.surfaceElevated, in: RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: AppRadius.control, style: .continuous)
-                        .stroke(AppColors.accentPrimary.opacity(0.14), lineWidth: 1)
-                }
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var scheduleStep: some View {
@@ -478,38 +393,7 @@ struct ActivityCreationFlow: View {
                 ActivityTagEditor(titleKey: "activity.rules.additional", values: $model.draft.rules)
             }
 
-            ActivityFormSection("activity.questions.title", subtitleKey: "activity.questions.subtitle") {
-                ForEach($model.draft.additionalQuestions) { $question in
-                    questionEditor($question)
-                }
-                Button { model.addQuestion() } label: {
-                    Label("activity.questions.add", systemImage: "plus.circle")
-                        .frame(minHeight: AppLayout.minimumTouchTarget)
-                }
-                .disabled(model.draft.additionalQuestions.count >= 3)
-            }
         }
-    }
-
-    private func questionEditor(_ question: Binding<ActivityQuestion>) -> some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-            TextField("activity.questions.prompt", text: question.prompt)
-                .padding(.horizontal, AppSpacing.md)
-                .frame(minHeight: 48)
-                .liquidGlassField(isInvalid: question.wrappedValue.prompt.isEmpty, isFocused: false)
-            Picker("activity.questions.kind", selection: question.kind) {
-                ForEach(ActivityQuestionKind.allCases) { value in Text(LocalizedStringKey(value.titleKey)).tag(value) }
-            }
-            Toggle("activity.questions.required", isOn: question.required)
-            if question.wrappedValue.kind == .singleChoice {
-                ActivityTagEditor(titleKey: "activity.questions.options", values: question.options)
-            }
-            Button("common.delete", role: .destructive) {
-                model.draft.additionalQuestions.removeAll { $0.id == question.wrappedValue.id }
-            }
-            .frame(minHeight: AppLayout.minimumTouchTarget)
-        }
-        .padding(.vertical, AppSpacing.xs)
     }
 
     private var previewStep: some View {
@@ -522,6 +406,7 @@ struct ActivityCreationFlow: View {
             if model.step != .basics {
                 Button("common.back", action: model.moveBack)
                     .buttonStyle(.bordered)
+                    .clipShape(Capsule())
                     .frame(minHeight: 52)
             }
             Spacer(minLength: 0)
@@ -541,10 +426,12 @@ struct ActivityCreationFlow: View {
                     .frame(minWidth: 150)
                 }
                 .buttonStyle(GradientPrimaryButtonStyle())
+                .clipShape(Capsule())
                 .disabled(model.isSubmitting)
             } else {
                 Button("common.next", action: model.moveForward)
                     .buttonStyle(GradientPrimaryButtonStyle())
+                    .clipShape(Capsule())
                     .disabled(!model.canMoveForward)
             }
         }
@@ -564,11 +451,11 @@ struct ActivityCreationFlow: View {
         )
     }
 
-    private func confirmCurrentLocation() {
+    private func useCurrentLocation() {
         waitsForCurrentLocation = true
         if let coordinate = location.coordinate.map(MapCoordinate.init) {
             waitsForCurrentLocation = false
-            Task { await model.useCoordinate(coordinate) }
+            Task { await model.useCoordinate(coordinate, resolveAddress: false) }
         } else {
             location.requestCurrentLocation()
         }
@@ -598,7 +485,12 @@ private struct ActivityDraftPreview: View {
                 Divider()
                 Label(draft.startsAt.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
                 Label(L10n.format("activity.duration.minutes %lld", draft.durationMinutes), systemImage: "clock")
-                if let address = draft.location?.address { Label(address, systemImage: "mappin.and.ellipse") }
+                if let location = draft.location {
+                    Label(
+                        String(format: "%.5f, %.5f", location.coordinate.latitude, location.coordinate.longitude),
+                        systemImage: "mappin.and.ellipse"
+                    )
+                }
                 Label(draft.participantLimit?.formatted() ?? L10n.string("activity.participants.unlimited"), systemImage: "person.2")
             }
             .padding(AppSpacing.lg)
