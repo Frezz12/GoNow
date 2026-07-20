@@ -6,7 +6,7 @@ use axum::{
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, QueryBuilder};
+use sqlx::{FromRow, Postgres, QueryBuilder, Transaction};
 use tracing::warn;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -287,6 +287,7 @@ pub struct ActivityResponse {
     pub is_organizer: bool,
     pub application_status: Option<String>,
     pub can_access_chat: bool,
+    pub chat_conversation_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -389,6 +390,7 @@ struct ActivityRow {
     recruitment_closed: bool,
     participant_count: i64,
     viewer_application_status: Option<String>,
+    chat_conversation_id: Option<Uuid>,
 }
 
 impl ActivityRow {
@@ -439,6 +441,9 @@ impl ActivityRow {
             is_organizer,
             application_status: self.viewer_application_status,
             can_access_chat: is_organizer || accepted,
+            chat_conversation_id: (is_organizer || accepted)
+                .then_some(self.chat_conversation_id)
+                .flatten(),
         }
     }
 }
@@ -665,7 +670,7 @@ fn validate_map_query(query: &MapActivitiesQuery) -> Result<Vec<String>, AppErro
     Ok(categories)
 }
 
-const ACTIVITY_SELECT: &str = "SELECT a.id, a.creator_id, a.title, a.description, a.category, a.latitude, a.longitude, a.address, a.venue_name, a.location_visibility, a.starts_at, a.duration_minutes, a.show_after, a.hide_after, a.participant_limit, a.join_policy, a.age_min, a.age_max, a.languages, a.skill_level, a.cost_type, a.cost_amount_cents, a.cost_note, a.bring_items, a.rules, a.additional_questions, COALESCE((SELECT jsonb_agg(jsonb_build_object('id', photo.id, 'contentPath', 'activities/' || a.id || '/photos/' || photo.id || '/content', 'isCover', photo.is_cover, 'sortIndex', photo.sort_index) ORDER BY photo.sort_index) FROM activity_photos photo WHERE photo.activity_id = a.id), '[]'::jsonb) AS photos, a.status, a.recruitment_closed, 1 + (SELECT COUNT(*) FROM activity_applications accepted WHERE accepted.activity_id = a.id AND accepted.status = 'accepted') AS participant_count, (SELECT viewer_application.status FROM activity_applications viewer_application WHERE viewer_application.activity_id = a.id AND viewer_application.applicant_id = $2) AS viewer_application_status FROM activities a";
+const ACTIVITY_SELECT: &str = "SELECT a.id, a.creator_id, a.title, a.description, a.category, a.latitude, a.longitude, a.address, a.venue_name, a.location_visibility, a.starts_at, a.duration_minutes, a.show_after, a.hide_after, a.participant_limit, a.join_policy, a.age_min, a.age_max, a.languages, a.skill_level, a.cost_type, a.cost_amount_cents, a.cost_note, a.bring_items, a.rules, a.additional_questions, COALESCE((SELECT jsonb_agg(jsonb_build_object('id', photo.id, 'contentPath', 'activities/' || a.id || '/photos/' || photo.id || '/content', 'isCover', photo.is_cover, 'sortIndex', photo.sort_index) ORDER BY photo.sort_index) FROM activity_photos photo WHERE photo.activity_id = a.id), '[]'::jsonb) AS photos, a.status, a.recruitment_closed, 1 + (SELECT COUNT(*) FROM activity_applications accepted WHERE accepted.activity_id = a.id AND accepted.status = 'accepted') AS participant_count, (SELECT viewer_application.status FROM activity_applications viewer_application WHERE viewer_application.activity_id = a.id AND viewer_application.applicant_id = $2) AS viewer_application_status, (SELECT conversation.id FROM conversations conversation WHERE conversation.activity_id = a.id LIMIT 1) AS chat_conversation_id FROM activities a";
 
 async fn fetch_activity(
     state: &AppState,
@@ -682,6 +687,87 @@ async fn fetch_activity(
         .ok_or_else(|| AppError::not_found("ACTIVITY_NOT_FOUND", "Активность не найдена"))
 }
 
+async fn ensure_activity_conversation(
+    tx: &mut Transaction<'_, Postgres>,
+    activity_id: Uuid,
+    organizer_id: Uuid,
+    activity_title: &str,
+) -> Result<Uuid, AppError> {
+    let conversation_id: Uuid = sqlx::query_scalar(
+        r#"INSERT INTO conversations (id, kind, title, activity_id)
+           VALUES ($1, 'activity', $2, $3)
+           ON CONFLICT (activity_id) WHERE activity_id IS NOT NULL
+           DO UPDATE SET title = EXCLUDED.title, updated_at = NOW()
+           RETURNING id"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(format!("Активность · {activity_title}"))
+    .bind(activity_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(AppError::internal)?;
+    sqlx::query(
+        "INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(conversation_id)
+    .bind(organizer_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(AppError::internal)?;
+    Ok(conversation_id)
+}
+
+async fn add_activity_participant_to_chat(
+    state: &AppState,
+    activity_id: Uuid,
+    organizer_id: Uuid,
+    participant_id: Uuid,
+    participant_name: &str,
+    activity_title: &str,
+) -> Result<Uuid, AppError> {
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
+    let conversation_id =
+        ensure_activity_conversation(&mut tx, activity_id, organizer_id, activity_title).await?;
+    let inserted = sqlx::query(
+        "INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(conversation_id)
+    .bind(participant_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(AppError::internal)?;
+    if inserted.rows_affected() > 0 {
+        sqlx::query(
+            "INSERT INTO chat_messages (id, conversation_id, sender_id, kind, body) VALUES ($1,$2,$3,'system',$4)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(conversation_id)
+        .bind(organizer_id)
+        .bind(format!("{participant_name} теперь участвует в активности"))
+        .execute(&mut *tx)
+        .await
+        .map_err(AppError::internal)?;
+    }
+    tx.commit().await.map_err(AppError::internal)?;
+    Ok(conversation_id)
+}
+
+async fn remove_activity_participant_from_chat(
+    state: &AppState,
+    activity_id: Uuid,
+    participant_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "DELETE FROM conversation_members member USING conversations conversation WHERE member.conversation_id = conversation.id AND conversation.activity_id = $1 AND member.user_id = $2",
+    )
+    .bind(activity_id)
+    .bind(participant_id)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    Ok(())
+}
+
 #[utoipa::path(post, path = "/api/v1/activities", tag = "activities", security(("bearer_auth" = [])), request_body = CreateActivityRequest, responses((status = 201, body = ActivityResponse), (status = 422, description = "Validation failed")))]
 pub async fn create(
     State(state): State<AppState>,
@@ -695,8 +781,10 @@ pub async fn create(
     let id = Uuid::new_v4();
     let starts_at = request.starts_at.unwrap_or_else(Utc::now);
     let show_after = request.show_after.unwrap_or_else(Utc::now);
+    let activity_title = request.title.trim().to_owned();
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
     sqlx::query("INSERT INTO activities (id, creator_id, title, description, category, latitude, longitude, address, venue_name, location_visibility, starts_at, duration_minutes, show_after, hide_after, participant_limit, join_policy, age_min, age_max, languages, skill_level, cost_type, cost_amount_cents, cost_note, bring_items, rules, additional_questions, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)")
-        .bind(id).bind(viewer_id).bind(request.title.trim()).bind(request.description.trim())
+        .bind(id).bind(viewer_id).bind(&activity_title).bind(request.description.trim())
         .bind(request.category).bind(request.latitude).bind(request.longitude)
         .bind(cleaned(request.address, 500)).bind(cleaned(request.venue_name, 120))
         .bind(request.location_visibility).bind(starts_at).bind(request.duration_minutes)
@@ -706,7 +794,9 @@ pub async fn create(
         .bind(request.cost_amount_cents).bind(cleaned(request.cost_note, 240))
         .bind(request.bring_items).bind(request.rules)
         .bind(serde_json::to_value(request.additional_questions).map_err(AppError::internal)?)
-        .bind(request.status.as_str()).execute(&state.db).await.map_err(AppError::internal)?;
+        .bind(request.status.as_str()).execute(&mut *tx).await.map_err(AppError::internal)?;
+    ensure_activity_conversation(&mut tx, id, viewer_id, &activity_title).await?;
+    tx.commit().await.map_err(AppError::internal)?;
     let response = fetch_activity(&state, id, viewer_id)
         .await?
         .response(viewer_id);
@@ -734,6 +824,28 @@ pub async fn mine(
 ) -> Result<Json<ApiResponse<Vec<ActivityResponse>>>, AppError> {
     let viewer_id = active_user_id(&headers, &state).await?;
     let query = format!("{ACTIVITY_SELECT} WHERE a.creator_id = $1 ORDER BY a.created_at DESC");
+    let rows: Vec<ActivityRow> = sqlx::query_as(&query)
+        .bind(viewer_id)
+        .bind(viewer_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(AppError::internal)?;
+    Ok(Json(ApiResponse::new(
+        rows.into_iter()
+            .map(|row| row.response(viewer_id))
+            .collect(),
+    )))
+}
+
+#[utoipa::path(get, path = "/api/v1/activities/participating", tag = "activities", security(("bearer_auth" = [])), responses((status = 200, body = Vec<ActivityResponse>)))]
+pub async fn participating(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<Vec<ActivityResponse>>>, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    let query = format!(
+        "{ACTIVITY_SELECT} WHERE EXISTS (SELECT 1 FROM activity_applications membership WHERE membership.activity_id = a.id AND membership.applicant_id = $1 AND membership.status = 'accepted') ORDER BY a.starts_at DESC, a.created_at DESC"
+    );
     let rows: Vec<ActivityRow> = sqlx::query_as(&query)
         .bind(viewer_id)
         .bind(viewer_id)
@@ -860,6 +972,17 @@ pub async fn apply(
         .bind(serde_json::to_value(request.answers).map_err(AppError::internal)?)
         .fetch_one(&state.db).await.map_err(AppError::internal)?;
     let accepted_immediately = status == "accepted";
+    if accepted_immediately {
+        add_activity_participant_to_chat(
+            &state,
+            activity_id,
+            activity.creator_id,
+            viewer_id,
+            &row.display_name,
+            &activity.title,
+        )
+        .await?;
+    }
     notifications::emit(
         &state,
         NotificationDraft {
@@ -942,6 +1065,27 @@ pub async fn update_application(
         .fetch_optional(&state.db).await.map_err(AppError::internal)?
         .ok_or_else(|| AppError::not_found("APPLICATION_NOT_FOUND", "Заявка не найдена"))?;
     let accepted = request.status == ApplicationStatus::Accepted;
+    if accepted {
+        add_activity_participant_to_chat(
+            &state,
+            activity_id,
+            viewer_id,
+            row.applicant_id,
+            &row.display_name,
+            &activity.title,
+        )
+        .await?;
+    } else {
+        remove_activity_participant_from_chat(&state, activity_id, row.applicant_id).await?;
+    }
+    notifications::resolve_activity_application(
+        &state,
+        viewer_id,
+        activity_id,
+        application_id,
+        if accepted { "accepted" } else { "rejected" },
+    )
+    .await?;
     notifications::emit(
         &state,
         NotificationDraft {
@@ -989,8 +1133,11 @@ pub async fn duplicate(
         ));
     }
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO activities (id, creator_id, title, description, category, latitude, longitude, address, venue_name, location_visibility, starts_at, duration_minutes, show_after, participant_limit, join_policy, age_min, age_max, languages, skill_level, cost_type, cost_amount_cents, cost_note, bring_items, rules, additional_questions, status) SELECT $1, creator_id, title, description, category, latitude, longitude, address, venue_name, location_visibility, NOW(), duration_minutes, NOW(), participant_limit, join_policy, age_min, age_max, languages, skill_level, cost_type, cost_amount_cents, cost_note, bring_items, rules, additional_questions, 'draft' FROM activities WHERE id = $2")
-        .bind(id).bind(activity_id).execute(&state.db).await.map_err(AppError::internal)?;
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
+    sqlx::query("INSERT INTO activities (id, creator_id, title, description, category, latitude, longitude, address, venue_name, location_visibility, starts_at, duration_minutes, show_after, participant_limit, join_policy, age_min, age_max, languages, skill_level, cost_type, cost_amount_cents, cost_note, bring_items, rules, additional_questions, status) SELECT $1, creator_id, title, description, category, latitude, longitude, NULL, NULL, location_visibility, NOW(), duration_minutes, NOW(), participant_limit, join_policy, age_min, age_max, languages, skill_level, cost_type, cost_amount_cents, cost_note, bring_items, rules, '[]'::jsonb, 'draft' FROM activities WHERE id = $2")
+        .bind(id).bind(activity_id).execute(&mut *tx).await.map_err(AppError::internal)?;
+    ensure_activity_conversation(&mut tx, id, viewer_id, &source.title).await?;
+    tx.commit().await.map_err(AppError::internal)?;
     Ok((
         StatusCode::CREATED,
         Json(ApiResponse::new(

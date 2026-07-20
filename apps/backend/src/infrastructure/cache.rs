@@ -1,12 +1,14 @@
-use redis::AsyncCommands;
+use std::time::Duration;
+
+use redis::{AsyncCommands, FromRedisValue, RedisResult, ToRedisArgs};
 use serde::{Serialize, de::DeserializeOwned};
-use tracing::warn;
+use tokio::time::sleep;
+use tracing::{debug, warn};
 
 use crate::app::AppState;
 
 pub async fn get_json<T: DeserializeOwned>(state: &AppState, key: &str) -> Option<T> {
-    let mut redis = state.redis.clone();
-    let value = match redis.get::<_, Option<String>>(key).await {
+    let value = match get_value::<String>(state, key).await {
         Ok(value) => value?,
         Err(error) => {
             warn!(%error, cache_key = key, "Redis cache read failed");
@@ -17,6 +19,7 @@ pub async fn get_json<T: DeserializeOwned>(state: &AppState, key: &str) -> Optio
         Ok(value) => Some(value),
         Err(error) => {
             warn!(%error, cache_key = key, "Redis JSON cache entry is invalid");
+            delete(state, key).await;
             None
         }
     }
@@ -35,15 +38,13 @@ pub async fn set_json<T: Serialize + ?Sized>(
         );
         return;
     };
-    let mut redis = state.redis.clone();
-    if let Err(error) = redis.set_ex::<_, _, ()>(key, value, ttl_seconds).await {
+    if let Err(error) = set_value(state, key, value, ttl_seconds).await {
         warn!(%error, cache_key = key, "Redis cache write failed");
     }
 }
 
 pub async fn get_bytes(state: &AppState, key: &str) -> Option<Vec<u8>> {
-    let mut redis = state.redis.clone();
-    match redis.get::<_, Option<Vec<u8>>>(key).await {
+    match get_value::<Vec<u8>>(state, key).await {
         Ok(value) => value.filter(|value| !value.is_empty()),
         Err(error) => {
             warn!(%error, cache_key = key, "Redis binary cache read failed");
@@ -53,15 +54,61 @@ pub async fn get_bytes(state: &AppState, key: &str) -> Option<Vec<u8>> {
 }
 
 pub async fn set_bytes(state: &AppState, key: &str, value: &[u8], ttl_seconds: u64) {
-    let mut redis = state.redis.clone();
-    if let Err(error) = redis.set_ex::<_, _, ()>(key, value, ttl_seconds).await {
+    if let Err(error) = set_value(state, key, value.to_vec(), ttl_seconds).await {
         warn!(%error, cache_key = key, "Redis binary cache write failed");
     }
 }
 
 pub async fn delete(state: &AppState, key: &str) {
-    let mut redis = state.redis.clone();
-    if let Err(error) = redis.del::<_, ()>(key).await {
+    if let Err(error) = delete_value(state, key).await {
         warn!(%error, cache_key = key, "Redis cache invalidation failed");
+    }
+}
+
+async fn get_value<T>(state: &AppState, key: &str) -> RedisResult<Option<T>>
+where
+    T: FromRedisValue,
+{
+    let mut redis = state.redis.clone();
+    match redis.get::<_, Option<T>>(key).await {
+        Err(error) if error.is_io_error() => {
+            debug!(%error, cache_key = key, "Redis connection dropped; retrying cache read");
+            sleep(Duration::from_millis(75)).await;
+            let mut redis = state.redis.clone();
+            redis.get::<_, Option<T>>(key).await
+        }
+        result => result,
+    }
+}
+
+async fn set_value<T>(state: &AppState, key: &str, value: T, ttl_seconds: u64) -> RedisResult<()>
+where
+    T: ToRedisArgs + Clone + Send + Sync,
+{
+    let mut redis = state.redis.clone();
+    match redis
+        .set_ex::<_, _, ()>(key, value.clone(), ttl_seconds)
+        .await
+    {
+        Err(error) if error.is_io_error() => {
+            debug!(%error, cache_key = key, "Redis connection dropped; retrying cache write");
+            sleep(Duration::from_millis(75)).await;
+            let mut redis = state.redis.clone();
+            redis.set_ex::<_, _, ()>(key, value, ttl_seconds).await
+        }
+        result => result,
+    }
+}
+
+async fn delete_value(state: &AppState, key: &str) -> RedisResult<()> {
+    let mut redis = state.redis.clone();
+    match redis.del::<_, ()>(key).await {
+        Err(error) if error.is_io_error() => {
+            debug!(%error, cache_key = key, "Redis connection dropped; retrying invalidation");
+            sleep(Duration::from_millis(75)).await;
+            let mut redis = state.redis.clone();
+            redis.del::<_, ()>(key).await
+        }
+        result => result,
     }
 }

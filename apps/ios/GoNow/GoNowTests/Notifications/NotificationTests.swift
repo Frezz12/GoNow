@@ -44,4 +44,33 @@ final class NotificationTests: XCTestCase {
     func testPushPayloadWithoutEntityIsSafelyIgnored() {
         XCTAssertNil(PushNotificationCoordinator.destination(from: ["kind": "system"]))
     }
+
+    func testFriendRequestPushAcceptAction() {
+        let userID = UUID()
+        let action = PushNotificationCoordinator.action(from: "GONOW_ACCEPT", payload: [
+            "kind": "friend_request",
+            "entityId": userID.uuidString
+        ])
+
+        XCTAssertEqual(action, PushNotificationAction(
+            decision: .accept,
+            kind: "friend_request",
+            entityID: userID,
+            applicationID: nil
+        ))
+    }
+
+    func testActivityApplicationPushCarriesApplicationID() {
+        let activityID = UUID()
+        let applicationID = UUID()
+        let action = PushNotificationCoordinator.action(from: "GONOW_DECLINE", payload: [
+            "kind": "activity_application",
+            "entityId": activityID.uuidString,
+            "notificationPayload": ["applicationId": applicationID.uuidString]
+        ])
+
+        XCTAssertEqual(action?.decision, .decline)
+        XCTAssertEqual(action?.entityID, activityID)
+        XCTAssertEqual(action?.applicationID, applicationID)
+    }
 }

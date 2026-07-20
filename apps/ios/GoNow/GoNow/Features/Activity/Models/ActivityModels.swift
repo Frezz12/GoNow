@@ -151,7 +151,6 @@ enum ActivityWizardStep: Int, CaseIterable, Identifiable, Sendable {
 }
 
 enum ActivityLocationMode: String, CaseIterable, Identifiable, Sendable {
-    case address
     case map
     case current
 
@@ -263,6 +262,7 @@ struct GoNowActivity: Codable, Identifiable, Equatable, Sendable {
     let isOrganizer: Bool
     let applicationStatus: ActivityApplicationStatus?
     let canAccessChat: Bool
+    let chatConversationID: UUID?
 
     var endsAt: Date { startsAt.addingTimeInterval(TimeInterval(durationMinutes * 60)) }
     var isFull: Bool { participantLimit.map { participantCount >= $0 } ?? false }
@@ -274,6 +274,7 @@ struct GoNowActivity: Codable, Identifiable, Equatable, Sendable {
         case participantCount, participantLimit, joinPolicy, ageMin, ageMax, languages, skillLevel
         case costType, costAmountCents, costNote, bringItems, rules, additionalQuestions, status
         case recruitmentClosed, isOrganizer, applicationStatus, canAccessChat
+        case chatConversationID = "chatConversationId"
     }
 }
 

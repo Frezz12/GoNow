@@ -127,7 +127,7 @@ impl Config {
                 .map_err(|_| "APP_PORT must be a number".to_string())?,
             database_url: required("DATABASE_URL")?,
             redis_url: required("REDIS_URL")?,
-            redis_media_cache_ttl_seconds: parse_positive("REDIS_MEDIA_CACHE_TTL_SECONDS", "3600")?
+            redis_media_cache_ttl_seconds: parse_positive("REDIS_MEDIA_CACHE_TTL_SECONDS", "86400")?
                 as u64,
             redis_media_cache_max_bytes: redis_media_cache_max_bytes as usize,
             redis_profile_cache_ttl_seconds: parse_positive(

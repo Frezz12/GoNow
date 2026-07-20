@@ -110,6 +110,7 @@ struct ChatTabView: View {
             let result = try await (conversationsTask, invitationsTask)
             conversations = result.0
             invitations = result.1
+            appState.applyUnreadChatCount(conversations.reduce(0) { $0 + max(0, $1.unreadCount) })
         } catch { errorMessage = error.localizedDescription }
     }
 }

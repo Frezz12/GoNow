@@ -11,6 +11,8 @@ struct NotificationsView: View {
     @State private var errorMessage: String?
     @State private var isSettingsPresented = false
     @State private var path: [NotificationDestination] = []
+    @State private var processingActionIDs: Set<UUID> = []
+    @State private var resolvedActionIDs: Set<UUID> = []
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -34,13 +36,6 @@ struct NotificationsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top) { filterBar }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Прочитать всё", systemImage: "checkmark.circle") {
-                        Task { await markAllRead() }
-                    }
-                    .disabled(appState.unreadNotificationCount == 0)
-                    .accessibilityHint("Снимает отметку со всех непрочитанных уведомлений")
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Настройки", systemImage: "slider.horizontal.3") {
                         isSettingsPresented = true
@@ -87,12 +82,15 @@ struct NotificationsView: View {
             ForEach(groupedNotifications, id: \.title) { group in
                 Section(group.title) {
                     ForEach(group.items) { notification in
-                        Button {
-                            open(notification)
-                        } label: {
-                            NotificationRow(notification: notification)
-                        }
-                        .buttonStyle(.plain)
+                        NotificationRow(
+                            notification: notification,
+                            isProcessing: processingActionIDs.contains(notification.id),
+                            showsQuickActions: notification.quickAction != nil
+                                && !resolvedActionIDs.contains(notification.id),
+                            open: { open(notification) },
+                            accept: { performAction(notification, decision: .accept) },
+                            decline: { performAction(notification, decision: .decline) }
+                        )
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 Task { await delete(notification) }
@@ -150,7 +148,6 @@ struct NotificationsView: View {
         case .all: notifications
         case .unread: notifications.filter { !$0.isRead }
         case .social: notifications.filter { $0.category == .social }
-        case .messages: notifications.filter { $0.category == .messages }
         case .activities: notifications.filter { $0.category == .activities }
         }
     }
@@ -165,7 +162,7 @@ struct NotificationsView: View {
     private var emptyMessage: String {
         if let errorMessage { return errorMessage }
         switch filter {
-        case .all: return "Здесь появятся сообщения, заявки в друзья, приглашения и важные изменения активностей."
+        case .all: return "Здесь появятся заявки в друзья, приглашения и важные изменения активностей."
         case .unread: return "Новых уведомлений нет."
         default: return "В этой категории пока нет уведомлений."
         }
@@ -177,7 +174,17 @@ struct NotificationsView: View {
         do {
             let feed = try await appState.notificationRepository.list()
             notifications = feed.items
-            appState.applyUnreadNotificationCount(feed.unreadCount)
+            if feed.unreadCount > 0 {
+                let count = try await appState.notificationRepository.markAllRead()
+                notifications = notifications.map { item in
+                    var item = item
+                    item.isRead = true
+                    return item
+                }
+                appState.applyUnreadNotificationCount(count)
+            } else {
+                appState.applyUnreadNotificationCount(0)
+            }
             errorMessage = nil
         } catch is CancellationError {
             return
@@ -212,17 +219,41 @@ struct NotificationsView: View {
         }
     }
 
-    private func markAllRead() async {
-        do {
-            let count = try await appState.notificationRepository.markAllRead()
-            notifications = notifications.map { item in
-                var item = item
-                item.isRead = true
-                return item
+    private func performAction(
+        _ notification: GoNowNotification,
+        decision: NotificationDecision
+    ) {
+        guard let action = notification.quickAction,
+              !processingActionIDs.contains(notification.id) else { return }
+        Task {
+            processingActionIDs.insert(notification.id)
+            defer { processingActionIDs.remove(notification.id) }
+            do {
+                switch action {
+                case .friendRequest(let userID):
+                    _ = try await appState.socialRepository.decideFriend(
+                        userID,
+                        action: decision.rawValue
+                    )
+                case .invitation(let invitationID):
+                    _ = try await appState.socialRepository.decideInvitation(
+                        invitationID,
+                        action: decision.rawValue
+                    )
+                case .activityApplication(let activityID, let applicationID):
+                    _ = try await appState.activityRepository.updateApplication(
+                        activityID: activityID,
+                        applicationID: applicationID,
+                        status: decision == .accept ? .accepted : .rejected
+                    )
+                }
+                resolvedActionIDs.insert(notification.id)
+                await appState.reloadNotificationCount()
+                await appState.reloadChatUnreadCount()
+                AppHaptics.confirmation()
+            } catch {
+                errorMessage = error.localizedDescription
             }
-            appState.applyUnreadNotificationCount(count)
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 
@@ -237,48 +268,124 @@ struct NotificationsView: View {
     }
 }
 
+private enum NotificationDecision: String {
+    case accept
+    case decline
+}
+
+private enum NotificationQuickAction {
+    case friendRequest(UUID)
+    case invitation(UUID)
+    case activityApplication(activityID: UUID, applicationID: UUID)
+}
+
+private extension GoNowNotification {
+    var quickAction: NotificationQuickAction? {
+        switch kind {
+        case "friend_request":
+            guard payload.status == nil || payload.status == "pending",
+                  let entityId else { return nil }
+            return .friendRequest(entityId)
+        case "invitation":
+            guard payload.status == nil || payload.status == "pending",
+                  let entityId else { return nil }
+            return .invitation(entityId)
+        case "activity_application":
+            guard payload.status == "pending",
+                  let entityId,
+                  let applicationID = payload.applicationId else { return nil }
+            return .activityApplication(activityID: entityId, applicationID: applicationID)
+        default:
+            return nil
+        }
+    }
+}
+
 private struct NotificationRow: View {
     let notification: GoNowNotification
+    let isProcessing: Bool
+    let showsQuickActions: Bool
+    let open: () -> Void
+    let accept: () -> Void
+    let decline: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: AppSpacing.md) {
-            ZStack {
-                Circle().fill(categoryColor.opacity(0.16))
-                Image(systemName: notification.category.symbol)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(categoryColor)
-            }
-            .frame(width: 48, height: 48)
-            .overlay(alignment: .topTrailing) {
-                if !notification.isRead {
-                    Circle()
-                        .fill(AppColors.accentSecondary)
-                        .frame(width: 12, height: 12)
-                        .overlay { Circle().stroke(AppColors.surfacePrimary, lineWidth: 2) }
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            Button(action: open) {
+                HStack(alignment: .top, spacing: AppSpacing.md) {
+                    categoryIcon
+                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                        Text(notification.title)
+                            .font(.body.weight(notification.isRead ? .medium : .bold))
+                            .foregroundStyle(AppColors.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(notification.body)
+                            .font(AppTypography.body)
+                            .foregroundStyle(AppColors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(notification.createdAt, format: .relative(presentation: .named))
+                            .font(AppTypography.caption)
+                            .foregroundStyle(AppColors.textMuted)
+                    }
+                    Spacer(minLength: 0)
+                    if notification.destination != nil {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppColors.textMuted)
+                            .frame(width: 24, height: 44)
+                    }
                 }
+                .contentShape(Rectangle())
             }
-            .accessibilityHidden(true)
+            .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
-                Text(notification.title)
-                    .font(.body.weight(notification.isRead ? .medium : .bold))
-                    .foregroundStyle(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(notification.body)
-                    .font(AppTypography.body)
-                    .foregroundStyle(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(notification.createdAt, format: .relative(presentation: .named))
-                    .font(AppTypography.caption)
-                    .foregroundStyle(AppColors.textMuted)
+            if showsQuickActions {
+                HStack(spacing: AppSpacing.sm) {
+                    Button(action: accept) {
+                        Group {
+                            if isProcessing {
+                                ProgressView().tint(AppColors.textOnAccent)
+                            } else {
+                                Label("Принять", systemImage: "checkmark")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTouchTarget)
+                    }
+                    .buttonStyle(GradientPrimaryButtonStyle())
+                    .clipShape(Capsule())
+                    .disabled(isProcessing)
+
+                    Button(role: .destructive, action: decline) {
+                        Label("Отклонить", systemImage: "xmark")
+                            .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTouchTarget)
+                    }
+                    .buttonStyle(GlassSecondaryButtonStyle(isDestructive: true))
+                    .clipShape(Capsule())
+                    .disabled(isProcessing)
+                }
+                .padding(.leading, 48 + AppSpacing.md)
             }
         }
         .padding(.vertical, AppSpacing.xs)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(notification.title). \(notification.body)")
-        .accessibilityValue(notification.isRead ? "Прочитано" : "Новое")
-        .accessibilityHint(notification.destination == nil ? "" : "Открывает связанный раздел")
+    }
+
+    private var categoryIcon: some View {
+        ZStack {
+            Circle().fill(categoryColor.opacity(0.16))
+            Image(systemName: notification.category.symbol)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(categoryColor)
+        }
+        .frame(width: 48, height: 48)
+        .overlay(alignment: .topTrailing) {
+            if !notification.isRead {
+                Circle()
+                    .fill(AppColors.accentSecondary)
+                    .frame(width: 12, height: 12)
+                    .overlay { Circle().stroke(AppColors.surfacePrimary, lineWidth: 2) }
+            }
+        }
+        .accessibilityHidden(true)
     }
 
     private var categoryColor: Color {
@@ -295,7 +402,6 @@ private enum NotificationFilter: String, CaseIterable, Identifiable {
     case all
     case unread
     case social
-    case messages
     case activities
 
     var id: String { rawValue }
@@ -304,7 +410,6 @@ private enum NotificationFilter: String, CaseIterable, Identifiable {
         case .all: "Все"
         case .unread: "Новые"
         case .social: "Люди"
-        case .messages: "Сообщения"
         case .activities: "Активности"
         }
     }
@@ -313,7 +418,6 @@ private enum NotificationFilter: String, CaseIterable, Identifiable {
         case .all: "bell"
         case .unread: "circle.fill"
         case .social: "person.2"
-        case .messages: "message"
         case .activities: "figure.run"
         }
     }

@@ -4,6 +4,7 @@ protocol ActivityRepository: Sendable {
     func create(from draft: ActivityDraft, status: ActivityLifecycleStatus) async throws -> GoNowActivity
     func activity(id: UUID) async throws -> GoNowActivity
     func ownedActivities() async throws -> [GoNowActivity]
+    func participatingActivities() async throws -> [GoNowActivity]
     func update(id: UUID, changes: ActivityUpdate) async throws -> GoNowActivity
     func apply(activityID: UUID, message: String?, answers: [ActivityApplicationAnswer]) async throws -> ActivityApplication
     func applications(activityID: UUID) async throws -> [ActivityApplication]
@@ -73,8 +74,8 @@ struct NetworkActivityRepository: ActivityRepository {
             category: draft.category,
             latitude: location.coordinate.latitude,
             longitude: location.coordinate.longitude,
-            address: location.address,
-            venueName: location.venueName,
+            address: nil,
+            venueName: nil,
             locationVisibility: location.visibility,
             startsAt: draft.startsAt,
             durationMinutes: draft.durationMinutes,
@@ -91,7 +92,7 @@ struct NetworkActivityRepository: ActivityRepository {
             costNote: draft.costNote.nilIfEmpty,
             bringItems: draft.bringItems,
             rules: draft.rules,
-            additionalQuestions: draft.additionalQuestions,
+            additionalQuestions: [],
             status: createStatus
         )
         let envelope: APIEnvelope<GoNowActivity> = try await apiClient.post(
@@ -125,6 +126,11 @@ struct NetworkActivityRepository: ActivityRepository {
 
     func ownedActivities() async throws -> [GoNowActivity] {
         let envelope: APIEnvelope<[GoNowActivity]> = try await apiClient.get("activities/mine")
+        return envelope.data
+    }
+
+    func participatingActivities() async throws -> [GoNowActivity] {
+        let envelope: APIEnvelope<[GoNowActivity]> = try await apiClient.get("activities/participating")
         return envelope.data
     }
 
@@ -257,12 +263,13 @@ actor MockActivityRepository: ActivityRepository {
             costNote: draft.costNote.nilIfEmpty,
             bringItems: draft.bringItems,
             rules: draft.rules,
-            additionalQuestions: draft.additionalQuestions,
+            additionalQuestions: [],
             status: status,
             recruitmentClosed: false,
             isOrganizer: true,
             applicationStatus: nil,
-            canAccessChat: true
+            canAccessChat: true,
+            chatConversationID: UUID()
         )
         activitiesByID[activity.id] = activity
         return activity
@@ -275,6 +282,12 @@ actor MockActivityRepository: ActivityRepository {
 
     func ownedActivities() async throws -> [GoNowActivity] {
         activitiesByID.values.filter(\.isOrganizer).sorted { $0.startsAt < $1.startsAt }
+    }
+
+    func participatingActivities() async throws -> [GoNowActivity] {
+        activitiesByID.values
+            .filter { !$0.isOrganizer && $0.applicationStatus == .accepted }
+            .sorted { $0.startsAt > $1.startsAt }
     }
 
     func update(id: UUID, changes: ActivityUpdate) async throws -> GoNowActivity {
@@ -307,7 +320,8 @@ actor MockActivityRepository: ActivityRepository {
             status: changes.status ?? old.status,
             recruitmentClosed: changes.recruitmentClosed ?? old.recruitmentClosed,
             isOrganizer: old.isOrganizer, applicationStatus: old.applicationStatus,
-            canAccessChat: old.canAccessChat
+            canAccessChat: old.canAccessChat,
+            chatConversationID: old.chatConversationID
         )
         activitiesByID[id] = updated
         return updated
@@ -358,7 +372,8 @@ actor MockActivityRepository: ActivityRepository {
             costAmountCents: source.costAmountCents, costNote: source.costNote,
             bringItems: source.bringItems, rules: source.rules,
             additionalQuestions: source.additionalQuestions, status: .draft,
-            recruitmentClosed: false, isOrganizer: true, applicationStatus: nil, canAccessChat: true
+            recruitmentClosed: false, isOrganizer: true, applicationStatus: nil, canAccessChat: true,
+            chatConversationID: UUID()
         )
         activitiesByID[copy.id] = copy
         return copy

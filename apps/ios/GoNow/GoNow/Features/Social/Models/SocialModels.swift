@@ -123,6 +123,7 @@ struct ChatMessage: Codable, Identifiable, Sendable, Equatable {
     let createdAt: Date
 
     var isProposal: Bool { kind == "placeProposal" || kind == "timeProposal" }
+    var isInvitation: Bool { kind == "invitation" }
     var isAttachment: Bool { ["image", "video", "file", "audio", "voice"].contains(kind) }
 }
 

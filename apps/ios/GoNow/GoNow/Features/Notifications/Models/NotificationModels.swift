@@ -39,6 +39,7 @@ struct GoNowNotification: Decodable, Identifiable, Hashable, Sendable {
     let entityType: String?
     let entityId: UUID?
     let actionPath: String?
+    let payload: NotificationPayload
     var isRead: Bool
     let createdAt: Date
 
@@ -51,6 +52,18 @@ struct GoNowNotification: Decodable, Identifiable, Hashable, Sendable {
         case "invitation": return .social
         default: return nil
         }
+    }
+}
+
+struct NotificationPayload: Decodable, Hashable, Sendable {
+    let applicationId: UUID?
+    let status: String?
+    let template: String?
+
+    init(applicationId: UUID? = nil, status: String? = nil, template: String? = nil) {
+        self.applicationId = applicationId
+        self.status = status
+        self.template = template
     }
 }
 
@@ -74,6 +87,7 @@ struct NotificationPreferences: Codable, Equatable, Sendable {
 
 struct NotificationRealtimeEvent: Decodable, Sendable {
     let event: String
+    let kind: String?
     let recipientId: UUID
     let notificationId: UUID?
     let unreadCount: Int

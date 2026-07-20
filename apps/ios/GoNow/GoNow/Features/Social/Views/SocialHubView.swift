@@ -168,16 +168,27 @@ struct SocialHubView: View {
     private func friendAction(_ user: SocialUser) {
         Task {
             do {
+                let updated: SocialUser
                 if user.isFriend {
-                    try await appState.socialRepository.removeFriend(user.id)
+                    updated = try await appState.socialRepository.removeFriend(user.id)
                 } else if user.isIncomingRequest {
-                    _ = try await appState.socialRepository.decideFriend(user.id, action: "accept")
-                } else if !user.hasPendingRequest {
-                    _ = try await appState.socialRepository.requestFriend(user.id)
+                    updated = try await appState.socialRepository.decideFriend(user.id, action: "accept")
+                } else if user.hasPendingRequest {
+                    updated = try await appState.socialRepository.removeFriend(user.id)
+                } else {
+                    updated = try await appState.socialRepository.requestFriend(user.id)
                 }
-                await loadPeople()
+                replaceUser(updated)
             } catch { errorMessage = error.localizedDescription }
         }
+    }
+
+    private func replaceUser(_ updated: SocialUser) {
+        guard let index = people.firstIndex(where: { $0.id == updated.id }) else {
+            people.append(updated)
+            return
+        }
+        people[index] = updated
     }
 
     private func startChat(_ user: SocialUser) {
@@ -309,8 +320,9 @@ private struct SocialUserCard: View {
                         Label(friendTitle, systemImage: friendSymbol)
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
-                    .buttonStyle(GlassSecondaryButtonStyle(isDestructive: user.isFriend))
-                    .disabled(user.hasPendingRequest && !user.isIncomingRequest)
+                    .buttonStyle(GlassSecondaryButtonStyle(
+                        isDestructive: user.isFriend || (user.hasPendingRequest && !user.isIncomingRequest)
+                    ))
 
                     if user.canMessage {
                         Button(action: messageAction) {
@@ -337,12 +349,13 @@ private struct SocialUserCard: View {
     private var friendTitle: String {
         if user.isFriend { return "Удалить" }
         if user.isIncomingRequest { return "Принять" }
-        if user.hasPendingRequest { return "Отправлено" }
+        if user.hasPendingRequest { return "Отменить запрос" }
         return "В друзья"
     }
     private var friendSymbol: String {
         if user.isFriend { return "person.badge.minus" }
         if user.isIncomingRequest { return "person.badge.checkmark" }
+        if user.hasPendingRequest { return "person.badge.minus" }
         return "person.badge.plus"
     }
 }
@@ -414,9 +427,11 @@ private struct InvitationCard: View {
                         }
                         .font(AppTypography.captionStrong)
                     }
-                } else if invitation.status == "accepted", invitation.conversationId != nil {
+                }
+                if invitation.conversationId != nil {
                     Button("Открыть чат", action: openChat)
                         .buttonStyle(GlassSecondaryButtonStyle())
+                        .clipShape(Capsule())
                 }
             }
         }

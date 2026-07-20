@@ -51,7 +51,11 @@ struct ActivityDetailView: View {
             ActivityApplicationForm(model: model)
         }
         .sheet(isPresented: $isChatPresented) {
-            ChatTabView()
+            if let activity = model.activity, let conversationID = activity.chatConversationID {
+                NavigationStack {
+                    ChatConversationView(conversationID: conversationID, title: activity.title)
+                }
+            }
         }
         .alert("activity.duplicate.done", isPresented: Binding(
             get: { duplicatedActivity != nil },
@@ -72,12 +76,23 @@ struct ActivityDetailView: View {
                             .frame(maxWidth: .infinity, minHeight: 52)
                     }
                     .buttonStyle(.borderedProminent)
-                } else if activity.canAccessChat {
+                    .clipShape(Capsule())
+                    if activity.chatConversationID != nil {
+                        Button { isChatPresented = true } label: {
+                            Image(systemName: "bubble.left.and.bubble.right.fill")
+                                .frame(width: 52, height: 52)
+                        }
+                        .buttonStyle(.bordered)
+                        .clipShape(Circle())
+                        .accessibilityLabel("activity.chat.open")
+                    }
+                } else if activity.canAccessChat, activity.chatConversationID != nil {
                     Button { isChatPresented = true } label: {
                         Label("activity.chat.open", systemImage: "bubble.left.and.bubble.right.fill")
                             .frame(maxWidth: .infinity, minHeight: 52)
                     }
                     .buttonStyle(.borderedProminent)
+                    .clipShape(Capsule())
                 } else if activity.applicationStatus == nil && !activity.recruitmentClosed && !activity.isFull {
                     Button { isApplicationPresented = true } label: {
                         Label("activity.apply.action", systemImage: "person.badge.plus")
