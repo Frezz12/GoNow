@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -26,6 +27,8 @@ class WeatherViewModel : ViewModel() {
     private var lastLocale: String? = null
     private var lastUnit: String? = null
     private var lastRequestTime = 0L
+    private var requestId = 0L
+    private var activeJob: Job? = null
 
     fun refresh(latitude: Double?, longitude: Double?, unit: TemperatureUnit, locale: String) {
         if (latitude == null || longitude == null) {
@@ -39,32 +42,41 @@ class WeatherViewModel : ViewModel() {
 
         // Skip if coords, locale, and unit barely changed and last response < 10 min ago
         val latDiff = lastLat?.let { abs(latitude - it) } ?: Double.MAX_VALUE
-        val lonDiff = lastLon?.let { abs(longitude - it) } ?: Double.MAX_VALUE
+        val lonDiff = lastLon?.let { abs(longitude - it) ?: Double.MAX_VALUE } ?: Double.MAX_VALUE
         if (latDiff < 0.001 && lonDiff < 0.001
             && locale == lastLocale
             && effectiveUnit.apiValue == lastUnit
             && now - lastRequestTime < 600_000) return
 
-        viewModelScope.launch {
+        activeJob?.cancel()
+        val id = ++requestId
+        activeJob = viewModelScope.launch {
             isLoading = true
             unavailableReason = null
             try {
-                snapshot = repository.fetch(latitude, longitude, effectiveUnit, locale)
-                lastLat = latitude
-                lastLon = longitude
-                lastLocale = locale
-                lastUnit = effectiveUnit.apiValue
-                lastRequestTime = now
+                val result = repository.fetch(latitude, longitude, effectiveUnit, locale)
+                if (requestId == id) {
+                    snapshot = result
+                    lastLat = latitude
+                    lastLon = longitude
+                    lastLocale = locale
+                    lastUnit = effectiveUnit.apiValue
+                    lastRequestTime = now
+                }
             } catch (e: Exception) {
-                snapshot = null
-                unavailableReason = when {
-                    e is WeatherException && e.httpCode == 503 -> WeatherUnavailableReason.SERVICE
-                    e.message?.contains("timeout", true) == true -> WeatherUnavailableReason.NETWORK
-                    e.message?.contains("connect", true) == true -> WeatherUnavailableReason.NETWORK
-                    else -> WeatherUnavailableReason.NETWORK
+                if (requestId == id) {
+                    snapshot = null
+                    unavailableReason = when {
+                        e is WeatherException && e.httpCode == 503 -> WeatherUnavailableReason.SERVICE
+                        e.message?.contains("timeout", true) == true -> WeatherUnavailableReason.NETWORK
+                        e.message?.contains("connect", true) == true -> WeatherUnavailableReason.NETWORK
+                        else -> WeatherUnavailableReason.NETWORK
+                    }
                 }
             } finally {
-                isLoading = false
+                if (requestId == id) {
+                    isLoading = false
+                }
             }
         }
     }

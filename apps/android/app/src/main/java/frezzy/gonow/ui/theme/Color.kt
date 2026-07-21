@@ -35,3 +35,10 @@ val BackdropBottom = Color(0xFFBADBFA)
 val GlassBackground = Color(0x0DFFFFFF)
 val GlassBorder = Color(0x33FFFFFF)
 val GlassBorderBottom = Color(0x337547E8)
+
+// ProfileStatus colors (UI extension — kept out of domain model)
+val ProfileStatusColor = mapOf(
+    "COMPLETE" to Color.Transparent,
+    "OPTIONAL" to Warning,
+    "REQUIRED" to Danger
+)

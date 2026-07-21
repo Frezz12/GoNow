@@ -83,6 +83,12 @@ dependencies {
     // Location
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
+    // Image loading
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // MapLibre
+    implementation("org.maplibre.gl:android-sdk:11.6.0")
+
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

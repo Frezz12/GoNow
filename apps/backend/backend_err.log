@@ -1,0 +1,3 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.89s
+     Running `target\debug\gonow-backend.exe`
+error: process didn't exit successfully: `target\debug\gonow-backend.exe` (exit code: 0xffffffff)

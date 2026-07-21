@@ -42,10 +42,10 @@ data class WeatherSnapshot(
         get() = "${apparentTemperature.roundToInt()}°${if (unit == TemperatureUnit.FAHRENHEIT) "F" else "C"}"
 
     val humidityText: String
-        get() = "${humidity.roundToInt()}%"
+        get() = if (humidity > 0) "${humidity.roundToInt()}%" else "—"
 
     val windSpeedText: String
-        get() = "${windSpeed.roundToInt()} км/ч"
+        get() = if (windSpeed > 0) "${windSpeed.roundToInt()} км/ч" else "—"
 }
 
 enum class WeatherCondition(val title: String, val icon: ImageVector) {
@@ -85,9 +85,9 @@ data class GoNowWeatherResponse(
 data class WeatherDto(
     @SerialName("city") val city: String? = null,
     @SerialName("temperature") val temperature: Double,
-    @SerialName("apparentTemperature") val apparentTemperature: Double,
-    @SerialName("relativeHumidity") val relativeHumidity: Double,
-    @SerialName("windSpeed") val windSpeed: Double,
+    @SerialName("apparentTemperature") val apparentTemperature: Double = Double.NaN,
+    @SerialName("relativeHumidity") val relativeHumidity: Double = Double.NaN,
+    @SerialName("windSpeed") val windSpeed: Double = Double.NaN,
     @SerialName("unit") val unit: String,
     @SerialName("weatherCode") val weatherCode: Int,
     @SerialName("isDay") val isDay: Boolean

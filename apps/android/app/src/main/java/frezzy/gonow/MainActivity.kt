@@ -20,14 +20,20 @@ import androidx.compose.ui.unit.sp
 import frezzy.gonow.core.SettingsPrefs
 import frezzy.gonow.core.location.DeviceLocationProvider
 import frezzy.gonow.core.weather.WeatherViewModel
+import frezzy.gonow.data.ActivityRepository
 import frezzy.gonow.data.AuthRepository
 import frezzy.gonow.data.DeviceIdentity
+import frezzy.gonow.data.NotificationRepository
+import frezzy.gonow.data.SocialRepository
 import frezzy.gonow.data.TokenStore
 import frezzy.gonow.models.AuthPhase
 import frezzy.gonow.network.ApiClient
-import frezzy.gonow.ui.auth.AuthFlow
-import frezzy.gonow.ui.auth.AuthViewModel
-import frezzy.gonow.ui.main.MainScreen
+import frezzy.gonow.features.authentication.AuthFlow
+import frezzy.gonow.features.authentication.AuthViewModel
+import frezzy.gonow.features.activity.ActivityCreationViewModel
+import frezzy.gonow.features.map.ActivityMapViewModel
+import frezzy.gonow.features.chat.ChatViewModel
+import frezzy.gonow.features.main.MainScreen
 import frezzy.gonow.ui.theme.*
 
 class MainActivity : ComponentActivity() {
@@ -36,6 +42,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var weatherViewModel: WeatherViewModel
     private lateinit var locationProvider: DeviceLocationProvider
     private lateinit var settingsPrefs: SettingsPrefs
+    private lateinit var activityMapViewModel: ActivityMapViewModel
+    private lateinit var activityCreationViewModel: ActivityCreationViewModel
+    private lateinit var chatViewModel: ChatViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,6 +58,9 @@ class MainActivity : ComponentActivity() {
         weatherViewModel = WeatherViewModel()
         locationProvider = DeviceLocationProvider(applicationContext)
         settingsPrefs = SettingsPrefs.getInstance(applicationContext)
+        activityMapViewModel = ActivityMapViewModel(ActivityRepository(apiClient))
+        activityCreationViewModel = ActivityCreationViewModel(ActivityRepository(apiClient))
+        chatViewModel = ChatViewModel(SocialRepository(apiClient))
 
         setContent {
             GoNowTheme(settingsPrefs = settingsPrefs) {
@@ -71,6 +83,9 @@ class MainActivity : ComponentActivity() {
                             weatherViewModel = weatherViewModel,
                             locationProvider = locationProvider,
                             settingsPrefs = settingsPrefs,
+                            activityMapViewModel = activityMapViewModel,
+                            activityCreationViewModel = activityCreationViewModel,
+                            chatViewModel = chatViewModel,
                             onLogout = authViewModel::logout
                         )
                     }

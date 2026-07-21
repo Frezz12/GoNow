@@ -14,7 +14,7 @@ class SettingsPrefs(context: Context) {
     var temperatureUnit = mutableStateOf(prefs.getInt(KEY_TEMP_UNIT, TEMP_AUTO))
         private set
 
-    var useProfileLocation = mutableStateOf(prefs.getBoolean(KEY_USE_PROFILE_LOCATION, false))
+    var useProfileLocation = mutableStateOf(prefs.getBoolean(KEY_USE_PROFILE_LOCATION, true))
         private set
 
     fun setThemeMode(value: Int) {

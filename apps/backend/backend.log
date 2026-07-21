@@ -1,0 +1,2 @@
+[2m2026-07-20T22:21:14.749686Z[0m [32m INFO[0m relation "_sqlx_migrations" already exists, skipping
+[2m2026-07-20T22:21:15.094255Z[0m [32m INFO[0m GoNow API listening [3maddress[0m[2m=[0m0.0.0.0:8080 [3menvironment[0m[2m=[0mdevelopment

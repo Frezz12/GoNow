@@ -45,9 +45,9 @@ class WeatherRepository {
         WeatherSnapshot(
             city = data.city,
             temperature = data.temperature,
-            apparentTemperature = data.apparentTemperature,
-            humidity = data.relativeHumidity,
-            windSpeed = data.windSpeed,
+            apparentTemperature = data.apparentTemperature.takeIf { !it.isNaN() } ?: data.temperature,
+            humidity = data.relativeHumidity.takeIf { !it.isNaN() } ?: 0.0,
+            windSpeed = data.windSpeed.takeIf { !it.isNaN() } ?: 0.0,
             unit = effectiveUnit,
             condition = WeatherCondition.fromWeatherCode(data.weatherCode, data.isDay),
             isDay = data.isDay
