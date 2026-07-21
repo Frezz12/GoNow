@@ -299,11 +299,28 @@ actor APIClient {
 
     func refresh() async throws -> AuthData {
         if let task = refreshTask { return try await task.value }
-        let task = Task<AuthData, Error> { [tokenStore] in
-            guard let tokens = try tokenStore.read() else { throw APIError.unauthorized }
-            let response: APIEnvelope<AuthData> = try await self.request("auth/refresh", method: "POST", body: try self.encoder.encode(RefreshPayload(refreshToken: tokens.refreshToken)), authenticated: false, retryAfterRefresh: false)
-            try tokenStore.save(response.data.tokens)
-            return response.data
+        let task = Task<AuthData, Error> { [self, tokenStore] in
+            var lastError: Error = APIError.unauthorized
+            for attempt in 0..<3 {
+                do {
+                    guard let tokens = try tokenStore.read() else { throw APIError.unauthorized }
+                    let response: APIEnvelope<AuthData> = try await self.request(
+                        "auth/refresh", method: "POST",
+                        body: try self.encoder.encode(RefreshPayload(refreshToken: tokens.refreshToken)),
+                        authenticated: false, retryAfterRefresh: false
+                    )
+                    try tokenStore.save(response.data.tokens)
+                    return response.data
+                } catch {
+                    if case APIError.transport = error, attempt < 2 {
+                        try await Task.sleep(for: .seconds(1))
+                        lastError = error
+                        continue
+                    }
+                    throw error
+                }
+            }
+            throw lastError
         }
         refreshTask = task
         defer { refreshTask = nil }

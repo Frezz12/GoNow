@@ -1,13 +1,14 @@
 services:
   postgres:
     image: postgres:17-alpine
+    container_name: gonow-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - gonow-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -19,38 +20,18 @@ services:
 
   redis:
     image: redis:7-alpine
+    container_name: gonow-redis
     restart: unless-stopped
     ports:
-      - "127.0.0.1:6379:6379"
+      - "6379:6379"
     volumes:
       - gonow-redis-data:/data
-    command: ["redis-server", "--appendonly", "no", "--maxmemory", "${REDIS_MAXMEMORY:-256mb}", "--maxmemory-policy", "allkeys-lru"]
+    command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [gonow]
-
-  backend:
-    build:
-      context: ./apps/backend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      APP_HOST: 0.0.0.0
-      APP_PORT: 8080
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://redis:6379
-    ports:
-      - "${APP_PORT:-8080}:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     networks: [gonow]
 
 volumes:
@@ -59,3 +40,4 @@ volumes:
 
 networks:
   gonow:
+    name: gonow-network
