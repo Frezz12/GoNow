@@ -395,7 +395,6 @@
 				DEVELOPMENT_TEAM = G44YGB3ZS9;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_GoNowAPIBaseURL = "https://api.gonow.example/api/v1";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GoNow использует геопозицию, чтобы показывать текущую погоду и примерное расстояние до вас.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "GoNow использует микрофон только во время записи голосового сообщения.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "GoNow сохраняет выбранную фотографию в вашу медиатеку по вашему запросу.";

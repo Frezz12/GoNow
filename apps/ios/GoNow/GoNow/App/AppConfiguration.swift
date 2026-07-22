@@ -6,9 +6,8 @@ enum AppConfiguration {
 
     static var apiBaseURL: URL {
         let candidates = [
-            ProcessInfo.processInfo.environment[environmentKey],
             bundledEnvironmentValue,
-            Bundle.main.object(forInfoDictionaryKey: "GoNowAPIBaseURL") as? String,
+            ProcessInfo.processInfo.environment[environmentKey],
             localAPIBaseURL
         ]
         for candidate in candidates {

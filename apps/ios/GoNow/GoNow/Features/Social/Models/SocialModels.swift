@@ -23,7 +23,7 @@ struct SocialPrivacySettings: Codable, Sendable, Equatable {
     let invitationPrivacy: SocialPrivacy
 }
 
-struct SocialUser: Codable, Identifiable, Sendable, Equatable {
+struct SocialUser: Codable, Identifiable, Sendable, Hashable {
     let id: UUID
     let displayName: String
     let username: String
@@ -39,6 +39,35 @@ struct SocialUser: Codable, Identifiable, Sendable, Equatable {
     var isFriend: Bool { friendshipStatus == "accepted" }
     var hasPendingRequest: Bool { friendshipStatus == "pending" }
     var initials: String { displayName.initials }
+}
+
+struct PublicUserProfile: Codable, Identifiable, Sendable, Hashable {
+    let id: UUID
+    let displayName: String
+    let username: String
+    let age: Int?
+    let city: String?
+    let occupation: String?
+    let relationshipStatus: String?
+    let bio: String?
+    let interests: [String]
+    let languages: [String]
+    let availability: String?
+    let preferredGroupSize: String?
+    let rating: Double
+    let distanceKm: Double?
+
+    var initials: String { displayName.initials }
+
+    var preferredGroupSizeText: String? {
+        switch preferredGroupSize {
+        case "oneToOne": "Один на один"
+        case "smallGroup": "Небольшая компания"
+        case "largeGroup": "Большая компания"
+        case "any": "Любая компания"
+        default: nil
+        }
+    }
 }
 
 enum MeetingTemplate: String, Codable, CaseIterable, Identifiable, Sendable {

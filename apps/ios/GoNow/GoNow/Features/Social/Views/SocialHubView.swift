@@ -57,6 +57,9 @@ struct SocialHubView: View {
         .navigationDestination(item: $chatTarget) { target in
             ChatConversationView(conversationID: target.id, title: target.title)
         }
+        .navigationDestination(for: SocialUser.self) { user in
+            PublicUserProfileView(user: user)
+        }
         .alert("Не удалось выполнить действие", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -248,19 +251,26 @@ private struct SocialUserCard: View {
     var body: some View {
         GlassCard {
             VStack(alignment: .leading, spacing: AppSpacing.md) {
-                HStack(alignment: .top, spacing: AppSpacing.md) {
-                    SocialAvatar(user: user, size: 58)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(user.displayName)
-                            .font(AppTypography.cardTitle)
-                        Text("@\(user.username)")
-                            .font(AppTypography.captionStrong)
-                            .foregroundStyle(AppColors.accentPrimary)
-                            .textSelection(.enabled)
-                            .accessibilityLabel("Username: \(user.username)")
+                NavigationLink(value: user) {
+                    HStack(alignment: .center, spacing: AppSpacing.md) {
+                        SocialAvatar(user: user, size: 58)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(user.displayName)
+                                .font(AppTypography.cardTitle)
+                                .foregroundStyle(AppColors.textPrimary)
+                            Text("@\(user.username)")
+                                .font(AppTypography.captionStrong)
+                                .foregroundStyle(AppColors.accentPrimary)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppColors.textMuted)
                     }
-                    Spacer(minLength: 0)
                 }
+                .buttonStyle(AppPressButtonStyle())
+                .accessibilityLabel("Открыть профиль \(user.displayName)")
+                .accessibilityHint("Показывает информацию, фотографии и посты пользователя")
 
                 Button {
                     withAnimation(reduceMotion ? nil : AppAnimation.standard) {
