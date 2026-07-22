@@ -28,6 +28,36 @@ actor SocialRepository {
         return response.data
     }
 
+    func profile(userID: UUID) async throws -> PublicUserProfile {
+        let response: APIEnvelope<PublicUserProfile> = try await api.getFresh(
+            "users/\(userID.uuidString)"
+        )
+        return response.data
+    }
+
+    func profilePhotos(userID: UUID) async throws -> ProfilePhotos {
+        let response: APIEnvelope<ProfilePhotos> = try await api.getFresh(
+            "users/\(userID.uuidString)/photos"
+        )
+        return response.data
+    }
+
+    func setPhotoLiked(_ liked: Bool, photoID: UUID) async throws -> PhotoEngagement {
+        let path = "users/photos/\(photoID.uuidString)/like"
+        let response: APIEnvelope<PhotoEngagement>
+        if liked {
+            response = try await api.post(
+                path,
+                body: EmptySocialPayload(),
+                authenticated: true
+            )
+        } else {
+            response = try await api.deleteDecodable(path)
+        }
+        guard response.data.photoId == photoID else { throw APIError.invalidResponse }
+        return response.data
+    }
+
     func requestFriend(_ userID: UUID) async throws -> SocialUser {
         let response: APIEnvelope<SocialUser> = try await api.post(
             "social/friends",

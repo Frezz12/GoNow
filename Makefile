@@ -23,3 +23,4 @@ reset-development-database:
 	@printf "This permanently removes local GoNow development data. Type RESET: "; read answer; test "$$answer" = "RESET"
 	docker compose down -v
 	docker compose up -d postgres redis
+

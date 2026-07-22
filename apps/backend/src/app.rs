@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     Router,
@@ -85,9 +88,9 @@ impl AppState {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, users::username_availability, users::public_profile, media::list_profile_photos, media::upload_avatar, media::upload_profile_photo, media::download_profile_photo, media::delete_profile_photo, weather::current, activities::create, activities::detail, activities::mine, activities::participating, activities::update, activities::apply, activities::applications, activities::update_application, activities::duplicate, activities::upload_photo, activities::download_photo, activities::review, activities::map, health),
+    paths(auth::register, auth::verify_email, auth::forgot_password, auth::reset_password, auth::login, auth::refresh, auth::logout, users::me, users::update_me, users::username_availability, users::public_profile, media::list_profile_photos, media::list_public_profile_photos, media::upload_avatar, media::upload_profile_photo, media::download_profile_photo, media::delete_profile_photo, weather::current, activities::create, activities::detail, activities::mine, activities::participating, activities::update, activities::apply, activities::applications, activities::update_application, activities::duplicate, activities::upload_photo, activities::download_photo, activities::review, activities::map, health),
     components(schemas(auth::RegisterRequest, auth::RegistrationData, auth::VerifyEmailRequest, auth::ForgotPasswordRequest, auth::ResetPasswordRequest, auth::LoginRequest, auth::RefreshRequest, auth::LogoutRequest, auth::AuthData, auth::Tokens, users::UserResponse, users::PublicProfileResponse, users::UpdateProfileRequest, users::UsernameAvailabilityResponse, media::ProfilePhotoResponse, media::ProfilePhotosResponse, weather::CurrentWeatherResponse, activities::ActivityStatus, activities::ApplicationStatus, activities::ActivityQuestion, activities::CreateActivityRequest, activities::UpdateActivityRequest, activities::CreateApplicationRequest, activities::ApplicationAnswer, activities::UpdateApplicationRequest, activities::CreateReviewRequest, activities::ActivityPhotoResponse, activities::ActivityResponse, activities::ActivityLocationResponse, activities::ActivityApplicantResponse, activities::ActivityApplicationResponse, activities::MapActivityResponse, activities::ActivityCoordinateResponse, activities::MapViewportResponse, activities::MapActivitiesData, activities::MapActivitiesMeta, activities::MapActivitiesEnvelope, crate::shared::response::ErrorEnvelope)),
-    tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"), (name = "media", description = "Private profile photos"), (name = "weather", description = "Current weather"), (name = "activities", description = "Offline activities and map discovery"))
+    tags((name = "authentication", description = "Registration and session management"), (name = "users", description = "Current user"), (name = "media", description = "Profile photos and engagement"), (name = "weather", description = "Current weather"), (name = "activities", description = "Offline activities and map discovery"))
 )]
 struct ApiDoc;
 
@@ -101,8 +104,14 @@ pub fn router(state: AppState) -> Router {
             Method::DELETE,
             Method::OPTIONS,
         ])
-        .allow_headers(tower_http::cors::Any)
-        .allow_origin(AllowOrigin::list(origins));
+        .allow_headers([
+            axum::http::header::AUTHORIZATION,
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::ACCEPT,
+        ])
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_credentials(true)
+        .max_age(Duration::from_secs(3600));
     Router::new()
         .route("/health", get(health))
         .route("/api/v1/auth/register", post(auth::register))
@@ -188,6 +197,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/users/{user_id}", get(users::public_profile))
         .route(
+            "/api/v1/users/{user_id}/photos",
+            get(media::list_public_profile_photos),
+        )
+        .route(
             "/api/v1/users/me/photos",
             get(media::list_profile_photos).post(media::upload_profile_photo),
         )
@@ -207,6 +220,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/users/photos/{photo_id}/content",
             get(media::download_profile_photo),
+        )
+        .route(
+            "/api/v1/users/photos/{photo_id}/like",
+            post(media::like_profile_photo).delete(media::unlike_profile_photo),
         )
         .route(
             "/api/v1/social/privacy",

@@ -1,0 +1,95 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+@theme {
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif;
+
+  --color-bg-primary: #F6F5FA;
+  --color-bg-secondary: #EFEDF5;
+  --color-surface-primary: #FFFFFF;
+  --color-surface-secondary: #F8F7FC;
+  --color-text-primary: #181620;
+  --color-text-secondary: #686374;
+  --color-text-muted: #918B9C;
+  --color-accent-primary: #7547E8;
+  --color-accent-secondary: #E85CA8;
+  --color-location-accent: #239DCC;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* style.md tokens — light */
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.4);
+  --glass-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --glass-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --glass-shadow-lg: 0 20px 60px -10px rgba(0, 0, 0, 0.08);
+}
+
+.dark {
+  --glass-bg: rgba(23, 22, 36, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.15);
+  --glass-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --glass-shadow-lg: 0 20px 60px -10px rgba(0, 0, 0, 0.35);
+}
+
+/* PrimaryButton — style.md: height 52-56, brand gradient, white text, scale 0.98 */
+.btn-primary-gradient {
+  background: linear-gradient(135deg, #7C5CFC 0%, #B05CF5 50%, #F472B6 100%);
+  border: none;
+  color: white;
+  height: 52px;
+  font-weight: 500;
+  font-size: 15px;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(124, 92, 252, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transition: all 0.15s ease;
+}
+.btn-primary-gradient:hover {
+  background: linear-gradient(135deg, #6a4de0 0%, #9d4de6 50%, #e060a0 100%);
+  box-shadow: 0 4px 16px rgba(124, 92, 252, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.btn-primary-gradient:active {
+  transform: scale(0.98);
+}
+.btn-primary-gradient:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* AppTextField — style.md: visible label, height 50+, surface bg, focus accent */
+.field-style .u-input {
+  background-color: var(--color-surface-secondary);
+  border-radius: 14px;
+  height: 50px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.field-style .u-input:focus-within {
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 2px rgba(117, 71, 232, 0.2);
+}
+
+/* MapLibre overrides */
+.maplibregl-ctrl-group {
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: var(--glass-shadow-sm) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border) !important;
+}
+.maplibregl-ctrl-group button {
+  width: 36px !important;
+  height: 36px !important;
+}
+.maplibregl-ctrl-attrib {
+  display: none !important;
+}

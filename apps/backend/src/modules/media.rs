@@ -427,6 +427,63 @@ pub async fn list_profile_photos(
 }
 
 #[utoipa::path(
+    get, path = "/api/v1/users/{user_id}/photos", tag = "media", security(("bearer_auth" = [])),
+    params(("user_id" = Uuid, Path, description = "Profile owner ID")),
+    responses((status = 200, body = ProfilePhotosResponse), (status = 404, description = "Profile not found"), (status = 401, description = "Access token is invalid or expired"))
+)]
+pub async fn list_public_profile_photos(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<ProfilePhotosResponse>>, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    let profile_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND status = 'active')",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    if !profile_exists {
+        return Err(AppError {
+            status: StatusCode::NOT_FOUND,
+            code: "PROFILE_NOT_FOUND",
+            message: "Профиль не найден".into(),
+            fields: None,
+        });
+    }
+
+    // Public media is viewer-specific because each item includes the viewer's like state.
+    let rows: Vec<ProfilePhotoRow> = sqlx::query_as(
+        "SELECT photo.id, photo.object_key, photo.content_type, photo.bytes, photo.is_avatar, photo.is_current_avatar, photo.description, (SELECT COUNT(*) FROM profile_photo_likes likes WHERE likes.photo_id = photo.id) AS like_count, EXISTS(SELECT 1 FROM profile_photo_likes likes WHERE likes.photo_id = photo.id AND likes.user_id = $2) AS is_liked, photo.created_at FROM user_photos photo WHERE photo.user_id = $1 ORDER BY photo.is_current_avatar DESC, photo.is_avatar DESC, photo.created_at DESC",
+    )
+    .bind(user_id)
+    .bind(viewer_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    let mut avatar = None;
+    let mut avatars = Vec::new();
+    let mut photos = Vec::new();
+    for row in rows {
+        if row.is_avatar {
+            let response: ProfilePhotoResponse = row.into();
+            if response.is_current_avatar {
+                avatar = Some(response.clone());
+            }
+            avatars.push(response);
+        } else {
+            photos.push(row.into());
+        }
+    }
+    Ok(Json(ApiResponse::new(ProfilePhotosResponse {
+        avatar,
+        avatars,
+        photos,
+    })))
+}
+
+#[utoipa::path(
     post, path = "/api/v1/users/me/avatar", tag = "media", security(("bearer_auth" = [])),
     request_body(content = String, content_type = "multipart/form-data", description = "A single image in field file"),
     responses((status = 200, body = ProfilePhotoResponse), (status = 422, description = "Invalid image"), (status = 503, description = "Object storage is not configured or unavailable"))
