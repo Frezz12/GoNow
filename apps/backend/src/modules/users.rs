@@ -415,7 +415,15 @@ pub(crate) async fn active_user_id(
         status
     };
     match status.as_deref() {
-        Some("active") => Ok(user_id),
+        Some("active") => {
+            let _ = sqlx::query(
+                "UPDATE users SET last_seen_at = NOW() WHERE id = $1 AND last_seen_at < NOW() - INTERVAL '30 seconds'",
+            )
+            .bind(user_id)
+            .execute(&state.db)
+            .await;
+            Ok(user_id)
+        }
         Some(_) => Err(AppError {
             status: StatusCode::FORBIDDEN,
             code: "USER_DISABLED",

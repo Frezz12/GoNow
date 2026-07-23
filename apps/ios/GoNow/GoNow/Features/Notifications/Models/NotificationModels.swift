@@ -96,6 +96,7 @@ struct NotificationRealtimeEvent: Decodable, Sendable {
 enum NotificationDestination: Hashable, Sendable {
     case conversation(UUID, title: String)
     case activity(UUID)
+    case profile(UUID, displayName: String, avatarPath: String?)
     case social
 }
 

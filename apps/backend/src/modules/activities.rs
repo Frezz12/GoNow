@@ -260,6 +260,8 @@ pub struct ActivityPhotoUploadQuery {
 pub struct ActivityResponse {
     pub id: Uuid,
     pub creator_id: Uuid,
+    pub creator: ActivityApplicantResponse,
+    pub participants: Vec<ActivityApplicantResponse>,
     pub title: String,
     pub description: String,
     pub category: String,
@@ -305,7 +307,7 @@ pub struct MapActivityResponse {
     pub is_joined: bool,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityApplicantResponse {
     pub id: Uuid,
@@ -361,6 +363,8 @@ pub struct MapActivitiesEnvelope {
 struct ActivityRow {
     id: Uuid,
     creator_id: Uuid,
+    creator: serde_json::Value,
+    participants: serde_json::Value,
     title: String,
     description: String,
     category: String,
@@ -407,6 +411,9 @@ impl ActivityRow {
         ActivityResponse {
             id: self.id,
             creator_id: self.creator_id,
+            creator: serde_json::from_value(self.creator)
+                .expect("activity creator query always returns a creator"),
+            participants: serde_json::from_value(self.participants).unwrap_or_default(),
             title: self.title,
             description: self.description,
             category: self.category,
@@ -670,7 +677,39 @@ fn validate_map_query(query: &MapActivitiesQuery) -> Result<Vec<String>, AppErro
     Ok(categories)
 }
 
-const ACTIVITY_SELECT: &str = "SELECT a.id, a.creator_id, a.title, a.description, a.category, a.latitude, a.longitude, a.address, a.venue_name, a.location_visibility, a.starts_at, a.duration_minutes, a.show_after, a.hide_after, a.participant_limit, a.join_policy, a.age_min, a.age_max, a.languages, a.skill_level, a.cost_type, a.cost_amount_cents, a.cost_note, a.bring_items, a.rules, a.additional_questions, COALESCE((SELECT jsonb_agg(jsonb_build_object('id', photo.id, 'contentPath', 'activities/' || a.id || '/photos/' || photo.id || '/content', 'isCover', photo.is_cover, 'sortIndex', photo.sort_index) ORDER BY photo.sort_index) FROM activity_photos photo WHERE photo.activity_id = a.id), '[]'::jsonb) AS photos, a.status, a.recruitment_closed, 1 + (SELECT COUNT(*) FROM activity_applications accepted WHERE accepted.activity_id = a.id AND accepted.status = 'accepted') AS participant_count, (SELECT viewer_application.status FROM activity_applications viewer_application WHERE viewer_application.activity_id = a.id AND viewer_application.applicant_id = $2) AS viewer_application_status, (SELECT conversation.id FROM conversations conversation WHERE conversation.activity_id = a.id LIMIT 1) AS chat_conversation_id FROM activities a";
+const ACTIVITY_SELECT: &str = r#"
+SELECT a.id, a.creator_id,
+       jsonb_build_object(
+           'id', creator.id,
+           'displayName', creator.display_name,
+           'rating', creator.rating,
+           'organizedActivities', (SELECT COUNT(*) FROM activities owned WHERE owned.creator_id = creator.id AND owned.status IN ('completed', 'published', 'started')),
+           'avatarUrl', (SELECT 'users/photos/' || avatar.id || '/content' FROM user_photos avatar WHERE avatar.user_id = creator.id AND avatar.is_current_avatar = TRUE LIMIT 1)
+       ) AS creator,
+       COALESCE((
+           SELECT jsonb_agg(jsonb_build_object(
+               'id', participant.id,
+               'displayName', participant.display_name,
+               'rating', participant.rating,
+               'organizedActivities', (SELECT COUNT(*) FROM activities owned WHERE owned.creator_id = participant.id AND owned.status IN ('completed', 'published', 'started')),
+               'avatarUrl', (SELECT 'users/photos/' || avatar.id || '/content' FROM user_photos avatar WHERE avatar.user_id = participant.id AND avatar.is_current_avatar = TRUE LIMIT 1)
+           ) ORDER BY application.created_at)
+           FROM activity_applications application
+           JOIN users participant ON participant.id = application.applicant_id
+           WHERE application.activity_id = a.id AND application.status = 'accepted'
+       ), '[]'::jsonb) AS participants,
+       a.title, a.description, a.category, a.latitude, a.longitude, a.address, a.venue_name,
+       a.location_visibility, a.starts_at, a.duration_minutes, a.show_after, a.hide_after,
+       a.participant_limit, a.join_policy, a.age_min, a.age_max, a.languages, a.skill_level,
+       a.cost_type, a.cost_amount_cents, a.cost_note, a.bring_items, a.rules, a.additional_questions,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('id', photo.id, 'contentPath', 'activities/' || a.id || '/photos/' || photo.id || '/content', 'isCover', photo.is_cover, 'sortIndex', photo.sort_index) ORDER BY photo.sort_index) FROM activity_photos photo WHERE photo.activity_id = a.id), '[]'::jsonb) AS photos,
+       a.status, a.recruitment_closed,
+       1 + (SELECT COUNT(*) FROM activity_applications accepted WHERE accepted.activity_id = a.id AND accepted.status = 'accepted') AS participant_count,
+       (SELECT viewer_application.status FROM activity_applications viewer_application WHERE viewer_application.activity_id = a.id AND viewer_application.applicant_id = $2) AS viewer_application_status,
+       (SELECT conversation.id FROM conversations conversation WHERE conversation.activity_id = a.id LIMIT 1) AS chat_conversation_id
+FROM activities a
+JOIN users creator ON creator.id = a.creator_id
+"#;
 
 async fn fetch_activity(
     state: &AppState,
@@ -694,15 +733,16 @@ async fn ensure_activity_conversation(
     activity_title: &str,
 ) -> Result<Uuid, AppError> {
     let conversation_id: Uuid = sqlx::query_scalar(
-        r#"INSERT INTO conversations (id, kind, title, activity_id)
-           VALUES ($1, 'activity', $2, $3)
+        r#"INSERT INTO conversations (id, kind, title, activity_id, created_by)
+           VALUES ($1, 'activity', $2, $3, $4)
            ON CONFLICT (activity_id) WHERE activity_id IS NOT NULL
-           DO UPDATE SET title = EXCLUDED.title, updated_at = NOW()
+           DO UPDATE SET title = EXCLUDED.title, created_by = EXCLUDED.created_by, updated_at = NOW()
            RETURNING id"#,
     )
     .bind(Uuid::new_v4())
     .bind(format!("Активность · {activity_title}"))
     .bind(activity_id)
+    .bind(organizer_id)
     .fetch_one(&mut **tx)
     .await
     .map_err(AppError::internal)?;

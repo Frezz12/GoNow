@@ -2,7 +2,9 @@ import SwiftUI
 
 struct PublicUserProfileView: View {
     @EnvironmentObject private var appState: AppState
-    let user: SocialUser
+    let userID: UUID
+    let displayName: String
+    let avatarPath: String?
     @State private var profile: PublicUserProfile?
     @State private var photos: [ProfilePhoto] = []
     @State private var avatarData = Data()
@@ -10,6 +12,18 @@ struct PublicUserProfileView: View {
     @State private var likingPhotoIDs: Set<UUID> = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+
+    init(user: SocialUser) {
+        userID = user.id
+        displayName = user.displayName
+        avatarPath = user.avatarPath
+    }
+
+    init(userID: UUID, displayName: String, avatarPath: String? = nil) {
+        self.userID = userID
+        self.displayName = displayName
+        self.avatarPath = avatarPath
+    }
 
     var body: some View {
         GlassScreen {
@@ -29,9 +43,9 @@ struct PublicUserProfileView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle(profile?.displayName ?? user.displayName)
+        .navigationTitle(profile?.displayName ?? displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: user.id) { await load() }
+        .task(id: userID) { await load() }
         .refreshable { await load() }
         .alert("Не удалось выполнить действие", isPresented: Binding(
             get: { profile != nil && errorMessage != nil },
@@ -223,15 +237,15 @@ struct PublicUserProfileView: View {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            async let profileTask = appState.socialRepository.profile(userID: user.id)
-            async let mediaTask = appState.socialRepository.profilePhotos(userID: user.id)
+            async let profileTask = appState.socialRepository.profile(userID: userID)
+            async let mediaTask = appState.socialRepository.profilePhotos(userID: userID)
             let (loadedProfile, media) = try await (profileTask, mediaTask)
             profile = loadedProfile
             photos = media.photos
             if let avatar = media.avatar {
                 avatarData = (try? await appState.socialRepository.content(path: avatar.contentPath)) ?? Data()
-            } else if let path = user.avatarPath {
-                avatarData = (try? await appState.socialRepository.content(path: path)) ?? Data()
+            } else if let avatarPath {
+                avatarData = (try? await appState.socialRepository.content(path: avatarPath)) ?? Data()
             } else {
                 avatarData = Data()
             }

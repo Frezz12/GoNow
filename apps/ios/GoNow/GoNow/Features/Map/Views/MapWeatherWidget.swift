@@ -105,7 +105,7 @@ struct MapWeatherWidget: View {
                         .foregroundStyle(AppColors.textMuted)
                 }
             }
-            .frame(minWidth: 246, alignment: .leading)
+            .frame(width: 206, alignment: .leading)
         } else {
             HStack(spacing: AppSpacing.sm) {
                 Image(systemName: snapshot.condition.symbol)
@@ -194,7 +194,7 @@ private struct WeatherDetailMetric: View {
             Text(title)
                 .font(.caption2)
                 .foregroundStyle(AppColors.textMuted)
-                .lineLimit(1)
+                .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

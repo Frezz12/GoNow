@@ -12,6 +12,7 @@ use chrono::{DateTime, Duration, Utc};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
+use std::collections::HashSet;
 use tracing::warn;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -29,6 +30,7 @@ use super::{
 
 pub const MAX_CHAT_ATTACHMENT_BYTES: usize = 50 * 1024 * 1024;
 pub const MAX_CHAT_MULTIPART_BODY_BYTES: usize = MAX_CHAT_ATTACHMENT_BYTES + 256 * 1024;
+const MAX_CHAT_AVATAR_BYTES: usize = 5 * 1024 * 1024;
 const CHAT_ATTACHMENT_CACHE_CONTROL: &str = "private, max-age=604800, immutable";
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -714,9 +716,72 @@ pub struct ConversationResponse {
     pub title: String,
     pub participant_id: Option<Uuid>,
     pub avatar_path: Option<String>,
+    pub activity_id: Option<Uuid>,
+    pub created_by_id: Option<Uuid>,
     pub last_message: Option<String>,
     pub last_message_at: Option<DateTime<Utc>>,
     pub unread_count: i64,
+    pub member_count: i64,
+    pub is_archived: bool,
+    pub is_online: bool,
+    pub last_seen_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMemberResponse {
+    pub id: Uuid,
+    pub display_name: String,
+    pub avatar_path: Option<String>,
+    pub is_creator: bool,
+    pub is_friend: bool,
+    pub is_online: bool,
+    pub last_seen_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationDetailsResponse {
+    pub conversation: ConversationResponse,
+    pub members: Vec<ConversationMemberResponse>,
+}
+
+#[derive(Debug, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationInvitationResponse {
+    pub id: Uuid,
+    pub conversation_id: Uuid,
+    pub conversation_title: String,
+    pub inviter_id: Uuid,
+    pub inviter_name: String,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateGroupRequest {
+    pub title: String,
+    #[serde(default)]
+    pub member_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveConversationRequest {
+    pub archived: bool,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AddConversationMemberRequest {
+    pub user_id: Uuid,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AddConversationMemberResponse {
+    pub status: String,
 }
 
 #[derive(Clone, Debug, Serialize, FromRow, ToSchema)]
@@ -732,11 +797,17 @@ pub struct ChatMessageResponse {
     pub vote_count: i64,
     pub is_voted: bool,
     pub is_mine: bool,
+    pub is_read: bool,
+    pub reply_to_id: Option<Uuid>,
+    pub reply_to_sender_name: Option<String>,
+    pub reply_to_body: Option<String>,
+    pub reply_to_kind: Option<String>,
     pub attachment_name: Option<String>,
     pub attachment_content_type: Option<String>,
     pub attachment_bytes: Option<i32>,
     pub duration_seconds: Option<f64>,
     pub content_path: Option<String>,
+    pub edited_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -759,6 +830,7 @@ struct ChatSocketCommand {
 pub struct AttachmentUploadQuery {
     pub kind: String,
     pub duration_seconds: Option<f64>,
+    pub reply_to_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -767,6 +839,13 @@ pub struct SendMessageRequest {
     pub kind: String,
     pub body: String,
     pub proposal_detail: Option<String>,
+    pub reply_to_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditMessageRequest {
+    pub body: String,
 }
 
 pub async fn conversations(
@@ -778,19 +857,32 @@ pub async fn conversations(
         r#"SELECT conversation.id, conversation.kind,
                   COALESCE(conversation.title, other.display_name, 'Чат') AS title,
                   other.id AS participant_id,
-                  CASE WHEN avatar.id IS NULL THEN NULL ELSE 'users/photos/' || avatar.id || '/content' END AS avatar_path,
+                  CASE
+                      WHEN conversation.avatar_object_key IS NOT NULL THEN 'social/conversations/' || conversation.id || '/avatar'
+                      WHEN activity_avatar.id IS NOT NULL THEN 'activities/' || conversation.activity_id || '/photos/' || activity_avatar.id || '/content'
+                      WHEN avatar.id IS NOT NULL THEN 'users/photos/' || avatar.id || '/content'
+                      ELSE NULL
+                  END AS avatar_path,
+                  conversation.activity_id, conversation.created_by AS created_by_id,
                   last_message.body AS last_message, last_message.created_at AS last_message_at,
-                  (SELECT COUNT(*) FROM chat_messages unread WHERE unread.conversation_id = conversation.id AND unread.sender_id <> $1 AND unread.created_at > COALESCE(member.last_read_at, member.joined_at)) AS unread_count
+                  (SELECT COUNT(*) FROM chat_messages unread WHERE unread.conversation_id = conversation.id AND unread.sender_id <> $1 AND unread.created_at > COALESCE(member.last_read_at, member.joined_at)) AS unread_count,
+                  (SELECT COUNT(*) FROM conversation_members participant WHERE participant.conversation_id = conversation.id) AS member_count,
+                  (member.archived_at IS NOT NULL) AS is_archived,
+                  COALESCE(other.last_seen_at > NOW() - INTERVAL '2 minutes', FALSE) AS is_online,
+                  other.last_seen_at
            FROM conversation_members member
            JOIN conversations conversation ON conversation.id = member.conversation_id
            LEFT JOIN LATERAL (
-               SELECT users.id, users.display_name FROM conversation_members others
+               SELECT users.id, users.display_name, users.last_seen_at FROM conversation_members others
                JOIN users ON users.id = others.user_id
                WHERE others.conversation_id = conversation.id AND others.user_id <> $1 LIMIT 1
            ) other ON TRUE
            LEFT JOIN LATERAL (
                SELECT id FROM user_photos WHERE user_id = other.id AND is_current_avatar = TRUE LIMIT 1
            ) avatar ON TRUE
+           LEFT JOIN LATERAL (
+               SELECT id FROM activity_photos WHERE activity_id = conversation.activity_id ORDER BY is_cover DESC, sort_index LIMIT 1
+           ) activity_avatar ON TRUE
            LEFT JOIN LATERAL (
                SELECT body, created_at FROM chat_messages WHERE conversation_id = conversation.id ORDER BY created_at DESC LIMIT 1
            ) last_message ON TRUE
@@ -836,6 +928,184 @@ pub async fn create_direct_conversation(
     Ok((StatusCode::CREATED, Json(ApiResponse::new(conversation))))
 }
 
+pub async fn create_group_conversation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateGroupRequest>,
+) -> Result<(StatusCode, Json<ApiResponse<ConversationResponse>>), AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    let title = request.title.trim();
+    if !(2..=70).contains(&title.chars().count()) {
+        return Err(AppError::validation(
+            serde_json::json!({"title": "Название должно содержать от 2 до 70 символов"}),
+        ));
+    }
+    let member_ids: HashSet<_> = request
+        .member_ids
+        .into_iter()
+        .filter(|id| *id != viewer_id)
+        .collect();
+    if member_ids.len() > 99 {
+        return Err(AppError::validation(
+            serde_json::json!({"memberIds": "В группе может быть не больше 100 участников"}),
+        ));
+    }
+
+    let conversation_id = Uuid::new_v4();
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
+    sqlx::query(
+        "INSERT INTO conversations (id, kind, title, created_by) VALUES ($1, 'group', $2, $3)",
+    )
+    .bind(conversation_id)
+    .bind(title)
+    .bind(viewer_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(AppError::internal)?;
+    add_member(&mut tx, conversation_id, viewer_id).await?;
+    for user_id in member_ids {
+        add_friend_or_invite(&mut tx, conversation_id, viewer_id, user_id).await?;
+    }
+    tx.commit().await.map_err(AppError::internal)?;
+    let conversation = conversation_by_id(&state, viewer_id, conversation_id).await?;
+    Ok((StatusCode::CREATED, Json(ApiResponse::new(conversation))))
+}
+
+pub async fn conversation_details(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+) -> Result<Json<ApiResponse<ConversationDetailsResponse>>, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    let conversation = conversation_by_id(&state, viewer_id, conversation_id).await?;
+    let members: Vec<ConversationMemberResponse> = sqlx::query_as(
+        r#"SELECT users.id, users.display_name,
+                  CASE WHEN avatar.id IS NULL THEN NULL ELSE 'users/photos/' || avatar.id || '/content' END AS avatar_path,
+                  (users.id = conversation.created_by) AS is_creator,
+                  EXISTS(SELECT 1 FROM friendships friendship WHERE friendship.status = 'accepted' AND ((friendship.user_low = $2 AND friendship.user_high = users.id) OR (friendship.user_high = $2 AND friendship.user_low = users.id))) AS is_friend,
+                  (users.last_seen_at > NOW() - INTERVAL '2 minutes') AS is_online,
+                  users.last_seen_at
+           FROM conversation_members member
+           JOIN users ON users.id = member.user_id
+           JOIN conversations conversation ON conversation.id = member.conversation_id
+           LEFT JOIN LATERAL (SELECT id FROM user_photos WHERE user_id = users.id AND is_current_avatar = TRUE LIMIT 1) avatar ON TRUE
+           WHERE member.conversation_id = $1
+           ORDER BY (users.id = conversation.created_by) DESC, users.display_name"#,
+    )
+    .bind(conversation_id)
+    .bind(viewer_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    Ok(Json(ApiResponse::new(ConversationDetailsResponse {
+        conversation,
+        members,
+    })))
+}
+
+pub async fn archive_conversation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+    Json(request): Json<ArchiveConversationRequest>,
+) -> Result<Json<ApiResponse<ConversationResponse>>, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    ensure_member(&state, conversation_id, viewer_id).await?;
+    sqlx::query(
+        "UPDATE conversation_members SET archived_at = CASE WHEN $3 THEN NOW() ELSE NULL END WHERE conversation_id = $1 AND user_id = $2",
+    )
+    .bind(conversation_id)
+    .bind(viewer_id)
+    .bind(request.archived)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    Ok(Json(ApiResponse::new(
+        conversation_by_id(&state, viewer_id, conversation_id).await?,
+    )))
+}
+
+pub async fn add_conversation_member(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+    Json(request): Json<AddConversationMemberRequest>,
+) -> Result<Json<ApiResponse<AddConversationMemberResponse>>, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    ensure_conversation_creator(&state, conversation_id, viewer_id).await?;
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
+    let added = add_friend_or_invite(&mut tx, conversation_id, viewer_id, request.user_id).await?;
+    tx.commit().await.map_err(AppError::internal)?;
+    Ok(Json(ApiResponse::new(AddConversationMemberResponse {
+        status: if added { "added" } else { "invited" }.into(),
+    })))
+}
+
+pub async fn conversation_invitations(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<Vec<ConversationInvitationResponse>>>, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    let rows = sqlx::query_as(
+        r#"SELECT invitation.id, invitation.conversation_id,
+                  COALESCE(conversation.title, 'Групповой чат') AS conversation_title,
+                  invitation.inviter_id, inviter.display_name AS inviter_name,
+                  invitation.status, invitation.created_at
+           FROM conversation_invitations invitation
+           JOIN conversations conversation ON conversation.id = invitation.conversation_id
+           JOIN users inviter ON inviter.id = invitation.inviter_id
+           WHERE invitation.invitee_id = $1 AND invitation.status = 'pending'
+           ORDER BY invitation.created_at DESC"#,
+    )
+    .bind(viewer_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    Ok(Json(ApiResponse::new(rows)))
+}
+
+pub async fn decide_conversation_invitation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(invitation_id): Path<Uuid>,
+    Json(request): Json<InvitationDecisionRequest>,
+) -> Result<Json<ApiResponse<ConversationInvitationResponse>>, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    let status = match request.action.as_str() {
+        "accept" => "accepted",
+        "decline" => "declined",
+        _ => {
+            return Err(AppError::validation(
+                serde_json::json!({"action": "Выберите accept или decline"}),
+            ));
+        }
+    };
+    let mut tx = state.db.begin().await.map_err(AppError::internal)?;
+    let conversation_id: Uuid = sqlx::query_scalar(
+        "SELECT conversation_id FROM conversation_invitations WHERE id = $1 AND invitee_id = $2 AND status = 'pending' FOR UPDATE",
+    )
+    .bind(invitation_id)
+    .bind(viewer_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(AppError::internal)?
+    .ok_or_else(|| AppError::not_found("INVITATION_NOT_FOUND", "Приглашение не найдено"))?;
+    if status == "accepted" {
+        add_member(&mut tx, conversation_id, viewer_id).await?;
+    }
+    sqlx::query(
+        "UPDATE conversation_invitations SET status = $2, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(invitation_id)
+    .bind(status)
+    .execute(&mut *tx)
+    .await
+    .map_err(AppError::internal)?;
+    tx.commit().await.map_err(AppError::internal)?;
+    let invitation = conversation_invitation_by_id(&state, viewer_id, invitation_id).await?;
+    Ok(Json(ApiResponse::new(invitation)))
+}
+
 pub async fn messages(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -849,11 +1119,19 @@ pub async fn messages(
                   (SELECT COUNT(*) FROM chat_message_votes vote WHERE vote.message_id = message.id) AS vote_count,
                   EXISTS(SELECT 1 FROM chat_message_votes vote WHERE vote.message_id = message.id AND vote.user_id = $2) AS is_voted,
                   (message.sender_id = $2) AS is_mine,
+                  (message.sender_id = $2
+                   AND EXISTS(SELECT 1 FROM conversation_members reader WHERE reader.conversation_id = message.conversation_id AND reader.user_id <> message.sender_id)
+                   AND NOT EXISTS(SELECT 1 FROM conversation_members reader WHERE reader.conversation_id = message.conversation_id AND reader.user_id <> message.sender_id AND COALESCE(reader.last_read_at, reader.joined_at) < message.created_at)) AS is_read,
+                  reply.id AS reply_to_id, reply_sender.display_name AS reply_to_sender_name,
+                  reply.body AS reply_to_body, reply.kind AS reply_to_kind,
                   message.attachment_name, message.attachment_content_type, message.attachment_bytes,
                   message.duration_seconds,
                   CASE WHEN message.attachment_object_key IS NULL THEN NULL ELSE 'social/conversations/' || message.conversation_id || '/messages/' || message.id || '/content' END AS content_path,
-                  message.created_at
-           FROM chat_messages message JOIN users sender ON sender.id = message.sender_id
+                  message.edited_at, message.created_at
+           FROM chat_messages message
+           JOIN users sender ON sender.id = message.sender_id
+           LEFT JOIN chat_messages reply ON reply.id = message.reply_to_id
+           LEFT JOIN users reply_sender ON reply_sender.id = reply.sender_id
            WHERE message.conversation_id = $1 ORDER BY message.created_at LIMIT 300"#,
     )
     .bind(conversation_id)
@@ -926,14 +1204,16 @@ pub async fn send_message(
             serde_json::json!({"message": "Сообщение должно содержать от 1 до 2000 символов"}),
         ));
     }
+    ensure_reply_target(&state, conversation_id, request.reply_to_id).await?;
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO chat_messages (id, conversation_id, sender_id, kind, body, proposal_detail) VALUES ($1,$2,$3,$4,$5,$6)")
+    sqlx::query("INSERT INTO chat_messages (id, conversation_id, sender_id, kind, body, proposal_detail, reply_to_id) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(id)
         .bind(conversation_id)
         .bind(viewer_id)
         .bind(request.kind)
         .bind(body)
         .bind(clean(request.proposal_detail))
+        .bind(request.reply_to_id)
         .execute(&state.db)
         .await
         .map_err(AppError::internal)?;
@@ -946,6 +1226,84 @@ pub async fn send_message(
     broadcast_message(&state, conversation_id, id, "message");
     notify_conversation_members(&state, &message).await?;
     Ok((StatusCode::CREATED, Json(ApiResponse::new(message))))
+}
+
+pub async fn edit_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((conversation_id, message_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<EditMessageRequest>,
+) -> Result<Json<ApiResponse<ChatMessageResponse>>, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    ensure_member(&state, conversation_id, viewer_id).await?;
+    let body = request.body.trim();
+    if body.is_empty() || body.chars().count() > 2_000 {
+        return Err(AppError::validation(
+            serde_json::json!({"message": "Сообщение должно содержать от 1 до 2000 символов"}),
+        ));
+    }
+    let updated = sqlx::query_scalar::<_, Uuid>(
+        "UPDATE chat_messages SET body = $1, edited_at = NOW() WHERE id = $2 AND conversation_id = $3 AND sender_id = $4 AND kind = 'text' RETURNING id",
+    )
+    .bind(body)
+    .bind(message_id)
+    .bind(conversation_id)
+    .bind(viewer_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    if updated.is_none() {
+        return Err(AppError {
+            status: StatusCode::NOT_FOUND,
+            code: "MESSAGE_NOT_EDITABLE",
+            message: "Сообщение не найдено или его нельзя редактировать".into(),
+            fields: None,
+        });
+    }
+    let message = message_by_id(&state, viewer_id, message_id).await?;
+    broadcast_message(&state, conversation_id, message_id, "messageUpdated");
+    Ok(Json(ApiResponse::new(message)))
+}
+
+pub async fn delete_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((conversation_id, message_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    ensure_member(&state, conversation_id, viewer_id).await?;
+    let row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT attachment_object_key FROM chat_messages WHERE id = $1 AND conversation_id = $2 AND sender_id = $3 AND kind NOT IN ('system', 'invitation')",
+    )
+    .bind(message_id)
+    .bind(conversation_id)
+    .bind(viewer_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    let Some((object_key,)) = row else {
+        return Err(AppError {
+            status: StatusCode::NOT_FOUND,
+            code: "MESSAGE_NOT_DELETABLE",
+            message: "Сообщение не найдено или его нельзя удалить".into(),
+            fields: None,
+        });
+    };
+    sqlx::query("DELETE FROM chat_messages WHERE id = $1")
+        .bind(message_id)
+        .execute(&state.db)
+        .await
+        .map_err(AppError::internal)?;
+    if let Some(object_key) = object_key {
+        cache::delete(&state, &chat_attachment_cache_key(&object_key)).await;
+        if let Some(storage) = state.object_storage.clone()
+            && let Err(error) = storage.delete(&object_key).await
+        {
+            warn!(error = %error, %object_key, "failed to remove deleted chat object");
+        }
+    }
+    broadcast_message(&state, conversation_id, message_id, "messageDeleted");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn vote_message(
@@ -990,12 +1348,24 @@ async fn conversation_by_id(
     let row: Option<ConversationResponse> = sqlx::query_as(
         r#"SELECT conversation.id, conversation.kind, COALESCE(conversation.title, other.display_name, 'Чат') AS title,
                   other.id AS participant_id,
-                  CASE WHEN avatar.id IS NULL THEN NULL ELSE 'users/photos/' || avatar.id || '/content' END AS avatar_path,
-                  last_message.body AS last_message, last_message.created_at AS last_message_at, 0::bigint AS unread_count
+                  CASE
+                      WHEN conversation.avatar_object_key IS NOT NULL THEN 'social/conversations/' || conversation.id || '/avatar'
+                      WHEN activity_avatar.id IS NOT NULL THEN 'activities/' || conversation.activity_id || '/photos/' || activity_avatar.id || '/content'
+                      WHEN avatar.id IS NOT NULL THEN 'users/photos/' || avatar.id || '/content'
+                      ELSE NULL
+                  END AS avatar_path,
+                  conversation.activity_id, conversation.created_by AS created_by_id,
+                  last_message.body AS last_message, last_message.created_at AS last_message_at,
+                  0::bigint AS unread_count,
+                  (SELECT COUNT(*) FROM conversation_members participant WHERE participant.conversation_id = conversation.id) AS member_count,
+                  (member.archived_at IS NOT NULL) AS is_archived,
+                  COALESCE(other.last_seen_at > NOW() - INTERVAL '2 minutes', FALSE) AS is_online,
+                  other.last_seen_at
            FROM conversations conversation
            JOIN conversation_members member ON member.conversation_id = conversation.id AND member.user_id = $1
-           LEFT JOIN LATERAL (SELECT users.id, users.display_name FROM conversation_members others JOIN users ON users.id = others.user_id WHERE others.conversation_id = conversation.id AND others.user_id <> $1 LIMIT 1) other ON TRUE
+           LEFT JOIN LATERAL (SELECT users.id, users.display_name, users.last_seen_at FROM conversation_members others JOIN users ON users.id = others.user_id WHERE others.conversation_id = conversation.id AND others.user_id <> $1 LIMIT 1) other ON TRUE
            LEFT JOIN LATERAL (SELECT id FROM user_photos WHERE user_id = other.id AND is_current_avatar = TRUE LIMIT 1) avatar ON TRUE
+           LEFT JOIN LATERAL (SELECT id FROM activity_photos WHERE activity_id = conversation.activity_id ORDER BY is_cover DESC, sort_index LIMIT 1) activity_avatar ON TRUE
            LEFT JOIN LATERAL (SELECT body, created_at FROM chat_messages WHERE conversation_id = conversation.id ORDER BY created_at DESC LIMIT 1) last_message ON TRUE
            WHERE conversation.id = $2"#,
     )
@@ -1023,11 +1393,20 @@ async fn message_by_id(
                   (SELECT COUNT(*) FROM chat_message_votes vote WHERE vote.message_id = message.id) AS vote_count,
                   EXISTS(SELECT 1 FROM chat_message_votes vote WHERE vote.message_id = message.id AND vote.user_id = $2) AS is_voted,
                   (message.sender_id = $2) AS is_mine,
+                  (message.sender_id = $2
+                   AND EXISTS(SELECT 1 FROM conversation_members reader WHERE reader.conversation_id = message.conversation_id AND reader.user_id <> message.sender_id)
+                   AND NOT EXISTS(SELECT 1 FROM conversation_members reader WHERE reader.conversation_id = message.conversation_id AND reader.user_id <> message.sender_id AND COALESCE(reader.last_read_at, reader.joined_at) < message.created_at)) AS is_read,
+                  reply.id AS reply_to_id, reply_sender.display_name AS reply_to_sender_name,
+                  reply.body AS reply_to_body, reply.kind AS reply_to_kind,
                   message.attachment_name, message.attachment_content_type, message.attachment_bytes,
                   message.duration_seconds,
                   CASE WHEN message.attachment_object_key IS NULL THEN NULL ELSE 'social/conversations/' || message.conversation_id || '/messages/' || message.id || '/content' END AS content_path,
-                  message.created_at
-           FROM chat_messages message JOIN users sender ON sender.id = message.sender_id WHERE message.id = $1"#,
+                  message.edited_at, message.created_at
+           FROM chat_messages message
+           JOIN users sender ON sender.id = message.sender_id
+           LEFT JOIN chat_messages reply ON reply.id = message.reply_to_id
+           LEFT JOIN users reply_sender ON reply_sender.id = reply.sender_id
+           WHERE message.id = $1"#,
     )
     .bind(message_id)
     .bind(viewer_id)
@@ -1102,6 +1481,7 @@ pub async fn upload_attachment(
             "durationSeconds": "Некорректная длительность медиа"
         })));
     }
+    ensure_reply_target(&state, conversation_id, query.reply_to_id).await?;
     let storage = state.object_storage.clone().ok_or_else(|| AppError {
         status: StatusCode::SERVICE_UNAVAILABLE,
         code: "OBJECT_STORAGE_UNAVAILABLE",
@@ -1123,7 +1503,7 @@ pub async fn upload_attachment(
         })?;
     let body = attachment_title(&query.kind, &file_name);
     let insert = sqlx::query(
-        "INSERT INTO chat_messages (id, conversation_id, sender_id, kind, body, attachment_object_key, attachment_name, attachment_content_type, attachment_bytes, duration_seconds) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        "INSERT INTO chat_messages (id, conversation_id, sender_id, kind, body, attachment_object_key, attachment_name, attachment_content_type, attachment_bytes, duration_seconds, reply_to_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
     )
     .bind(message_id)
     .bind(conversation_id)
@@ -1135,6 +1515,7 @@ pub async fn upload_attachment(
     .bind(&content_type)
     .bind(bytes)
     .bind(query.duration_seconds)
+    .bind(query.reply_to_id)
     .execute(&state.db)
     .await;
     if let Err(error) = insert {
@@ -1246,6 +1627,147 @@ pub async fn download_attachment(
                 HeaderValue::from_static(CHAT_ATTACHMENT_CACHE_CONTROL),
             ),
             (header::ETAG, etag_header),
+            (
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ),
+        ],
+        Body::from(data),
+    )
+        .into_response())
+}
+
+pub async fn upload_conversation_avatar(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+    mut multipart: Multipart,
+) -> Result<Json<ApiResponse<ConversationResponse>>, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    ensure_conversation_creator(&state, conversation_id, viewer_id).await?;
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|_| {
+            AppError::validation(serde_json::json!({"file": "Не удалось прочитать фото"}))
+        })?
+        .ok_or_else(|| AppError::validation(serde_json::json!({"file": "Выберите фото"})))?;
+    if field.name() != Some("file") {
+        return Err(AppError::validation(
+            serde_json::json!({"file": "Ожидается поле file"}),
+        ));
+    }
+    let file_name = safe_file_name(field.file_name().unwrap_or("group.jpg"));
+    let content_type = field.content_type().unwrap_or("image/jpeg").to_owned();
+    if !attachment_content_type_is_valid("image", &content_type) {
+        return Err(AppError::validation(
+            serde_json::json!({"file": "Поддерживаются JPEG, PNG, WebP и HEIC"}),
+        ));
+    }
+    let data = field
+        .bytes()
+        .await
+        .map_err(|_| {
+            AppError::validation(serde_json::json!({"file": "Не удалось прочитать фото"}))
+        })?
+        .to_vec();
+    if data.is_empty() || data.len() > MAX_CHAT_AVATAR_BYTES {
+        return Err(AppError::validation(
+            serde_json::json!({"file": "Фото должно быть не больше 5 МБ"}),
+        ));
+    }
+    let storage = state.object_storage.clone().ok_or_else(|| AppError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "OBJECT_STORAGE_UNAVAILABLE",
+        message: "Хранилище изображений пока не настроено".into(),
+        fields: None,
+    })?;
+    let old_key: Option<String> =
+        sqlx::query_scalar("SELECT avatar_object_key FROM conversations WHERE id = $1")
+            .bind(conversation_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(AppError::internal)?;
+    let extension = safe_extension(&file_name, &content_type);
+    let object_key = storage.chat_object_key(conversation_id, Uuid::new_v4(), &extension);
+    let bytes = i32::try_from(data.len()).map_err(AppError::internal)?;
+    storage
+        .put_image(&object_key, &content_type, data)
+        .await
+        .map_err(|error| {
+            warn!(error = %error, %conversation_id, "group avatar upload failed");
+            AppError::service_unavailable()
+        })?;
+    sqlx::query(
+        "UPDATE conversations SET avatar_object_key = $2, avatar_content_type = $3, avatar_bytes = $4, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(conversation_id)
+    .bind(&object_key)
+    .bind(&content_type)
+    .bind(bytes)
+    .execute(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    if let Some(old_key) = old_key {
+        cache::delete(&state, &chat_attachment_cache_key(&old_key)).await;
+        let _ = storage.delete(&old_key).await;
+    }
+    Ok(Json(ApiResponse::new(
+        conversation_by_id(&state, viewer_id, conversation_id).await?,
+    )))
+}
+
+pub async fn download_conversation_avatar(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+) -> Result<Response, AppError> {
+    let viewer_id = active_user_id(&headers, &state).await?;
+    ensure_member(&state, conversation_id, viewer_id).await?;
+    let (object_key, stored_content_type): (String, String) = sqlx::query_as(
+        "SELECT avatar_object_key, avatar_content_type FROM conversations WHERE id = $1 AND avatar_object_key IS NOT NULL",
+    )
+    .bind(conversation_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::internal)?
+    .ok_or_else(|| AppError::not_found("CHAT_AVATAR_NOT_FOUND", "Фото чата не найдено"))?;
+    let storage = state
+        .object_storage
+        .clone()
+        .ok_or_else(AppError::service_unavailable)?;
+    let cache_key = chat_attachment_cache_key(&object_key);
+    let (content_type, data) = if let Some(data) = cache::get_bytes(&state, &cache_key).await {
+        (stored_content_type.clone(), data)
+    } else {
+        let result = storage
+            .get_image(&object_key)
+            .await
+            .map_err(|_| AppError::service_unavailable())?;
+        if result.1.len() <= state.config.redis_media_cache_max_bytes {
+            cache::set_bytes(
+                &state,
+                &cache_key,
+                &result.1,
+                state.config.redis_media_cache_ttl_seconds,
+            )
+            .await;
+        }
+        result
+    };
+    let content_type = HeaderValue::from_str(if content_type.is_empty() {
+        &stored_content_type
+    } else {
+        &content_type
+    })
+    .map_err(AppError::internal)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, content_type),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, max-age=300"),
+            ),
             (
                 header::X_CONTENT_TYPE_OPTIONS,
                 HeaderValue::from_static("nosniff"),
@@ -1452,6 +1974,132 @@ fn attachment_title(kind: &str, file_name: &str) -> String {
         "voice" => "Голосовое сообщение".into(),
         _ => file_name.into(),
     }
+}
+
+async fn ensure_reply_target(
+    state: &AppState,
+    conversation_id: Uuid,
+    reply_to_id: Option<Uuid>,
+) -> Result<(), AppError> {
+    let Some(reply_to_id) = reply_to_id else {
+        return Ok(());
+    };
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = $1 AND conversation_id = $2)",
+    )
+    .bind(reply_to_id)
+    .bind(conversation_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    if exists {
+        Ok(())
+    } else {
+        Err(AppError::validation(
+            serde_json::json!({"replyToId": "Сообщение для ответа не найдено"}),
+        ))
+    }
+}
+
+async fn ensure_conversation_creator(
+    state: &AppState,
+    conversation_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    let allowed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM conversations WHERE id = $1 AND created_by = $2 AND kind IN ('group', 'activity'))",
+    )
+    .bind(conversation_id)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(AppError::internal)?;
+    if allowed {
+        Ok(())
+    } else {
+        Err(AppError::forbidden(
+            "CHAT_CREATOR_REQUIRED",
+            "Действие доступно только создателю чата",
+        ))
+    }
+}
+
+async fn add_friend_or_invite(
+    tx: &mut Transaction<'_, Postgres>,
+    conversation_id: Uuid,
+    inviter_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, AppError> {
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
+        .bind(user_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(AppError::internal)?;
+    if !exists {
+        return Err(AppError::not_found(
+            "USER_NOT_FOUND",
+            "Пользователь не найден",
+        ));
+    }
+    if user_id == inviter_id {
+        add_member(tx, conversation_id, user_id).await?;
+        return Ok(true);
+    }
+    let is_friend: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM friendships WHERE status = 'accepted' AND ((user_low = $1 AND user_high = $2) OR (user_low = $2 AND user_high = $1)))",
+    )
+    .bind(inviter_id)
+    .bind(user_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(AppError::internal)?;
+    if is_friend {
+        add_member(tx, conversation_id, user_id).await?;
+        sqlx::query(
+            "UPDATE conversation_invitations SET status = 'accepted', updated_at = NOW() WHERE conversation_id = $1 AND invitee_id = $2 AND status = 'pending'",
+        )
+        .bind(conversation_id)
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(AppError::internal)?;
+        Ok(true)
+    } else {
+        sqlx::query(
+            "INSERT INTO conversation_invitations (id, conversation_id, inviter_id, invitee_id) VALUES ($1,$2,$3,$4) ON CONFLICT (conversation_id, invitee_id) WHERE status = 'pending' DO UPDATE SET inviter_id = EXCLUDED.inviter_id, updated_at = NOW()",
+        )
+        .bind(Uuid::new_v4())
+        .bind(conversation_id)
+        .bind(inviter_id)
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(AppError::internal)?;
+        Ok(false)
+    }
+}
+
+async fn conversation_invitation_by_id(
+    state: &AppState,
+    viewer_id: Uuid,
+    invitation_id: Uuid,
+) -> Result<ConversationInvitationResponse, AppError> {
+    sqlx::query_as(
+        r#"SELECT invitation.id, invitation.conversation_id,
+                  COALESCE(conversation.title, 'Групповой чат') AS conversation_title,
+                  invitation.inviter_id, inviter.display_name AS inviter_name,
+                  invitation.status, invitation.created_at
+           FROM conversation_invitations invitation
+           JOIN conversations conversation ON conversation.id = invitation.conversation_id
+           JOIN users inviter ON inviter.id = invitation.inviter_id
+           WHERE invitation.id = $1 AND invitation.invitee_id = $2"#,
+    )
+    .bind(invitation_id)
+    .bind(viewer_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(AppError::internal)?
+    .ok_or_else(|| AppError::not_found("INVITATION_NOT_FOUND", "Приглашение не найдено"))
 }
 
 async fn ensure_member(

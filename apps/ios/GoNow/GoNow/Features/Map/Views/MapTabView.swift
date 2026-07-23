@@ -28,19 +28,25 @@ struct MapTabView: View {
                         )
                         Spacer(minLength: AppSpacing.md)
 
-                        HStack(spacing: AppSpacing.xxs) {
-                            MapNotificationButton(
-                                unreadCount: appState.unreadNotificationCount,
-                                action: onNotificationsTap
-                            )
-
+                        Menu {
                             Button(action: onProfileTap) {
-                                profileAvatar
+                                Label("tab.profile", systemImage: "person.crop.circle")
                             }
-                            .buttonStyle(AppPressButtonStyle())
-                            .accessibilityLabel(profileMenuAccessibilityLabel)
-                            .accessibilityHint("map.profile_menu.hint")
+
+                            Button(action: onNotificationsTap) {
+                                Label(
+                                    appState.unreadNotificationCount > 0
+                                        ? L10n.format("map.notifications.count %lld", appState.unreadNotificationCount)
+                                        : L10n.string("map.notifications.title"),
+                                    systemImage: appState.unreadNotificationCount > 0 ? "bell.badge.fill" : "bell"
+                                )
+                            }
+                        } label: {
+                            profileAvatar
                         }
+                        .buttonStyle(AppPressButtonStyle())
+                        .accessibilityLabel(profileMenuAccessibilityLabel)
+                        .accessibilityHint("map.profile_menu.hint")
                     }
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
@@ -70,49 +76,35 @@ struct MapTabView: View {
                     .offset(x: 2, y: 2)
                     .accessibilityHidden(true)
             }
+            if appState.unreadNotificationCount > 0 {
+                HStack(spacing: 2) {
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: 8, weight: .bold))
+                    Text(appState.unreadNotificationCount > 99 ? "99+" : "\(appState.unreadNotificationCount)")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                }
+                .foregroundStyle(AppColors.textOnAccent)
+                .padding(.horizontal, 5)
+                .frame(minWidth: 20, minHeight: 18)
+                .background(AppColors.error, in: Capsule())
+                .overlay { Capsule().strokeBorder(AppColors.glassHighlight, lineWidth: 1) }
+                .offset(x: 4, y: -4)
+                .accessibilityHidden(true)
+            }
         }
     }
 
     private var profileMenuAccessibilityLabel: String {
-        guard appState.showsProfileCompletionIndicator,
-              let status = appState.currentUser?.profileStatus else {
-            return L10n.string("profile.menu")
+        var details: [String] = [L10n.string("profile.menu")]
+        if appState.unreadNotificationCount > 0 {
+            details.append(L10n.format("map.notifications.count %lld", appState.unreadNotificationCount))
         }
-        return "\(L10n.string("profile.menu")). \(status.accessibilityDescription)"
-    }
-}
-
-private struct MapNotificationButton: View {
-    let unreadCount: Int
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: unreadCount > 0 ? "bell.fill" : "bell")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(AppColors.textPrimary)
-                    .frame(width: 48, height: 48)
-                    .background(.regularMaterial, in: Circle())
-                    .glassEffect(.regular, in: Circle())
-                    .overlay { Circle().strokeBorder(AppColors.glassBorder.opacity(0.72), lineWidth: 1) }
-                    .appShadow(.floating)
-                if unreadCount > 0 {
-                    Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .background(AppColors.error, in: Capsule())
-                        .overlay { Capsule().strokeBorder(AppColors.glassHighlight, lineWidth: 1) }
-                        .offset(x: -1, y: 1)
-                }
-            }
+        if appState.showsProfileCompletionIndicator,
+           let status = appState.currentUser?.profileStatus {
+            details.append(status.accessibilityDescription)
         }
-        .buttonStyle(AppPressButtonStyle())
-        .accessibilityLabel(
-            unreadCount > 0 ? "Уведомления, непрочитанных: \(unreadCount)" : "Уведомления"
-        )
+        return details.joined(separator: ". ")
     }
 }
 

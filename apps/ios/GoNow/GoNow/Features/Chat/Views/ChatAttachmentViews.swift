@@ -197,6 +197,8 @@ private struct ChatAudioAttachment: View {
     @State private var isPlaying = false
     @State private var playbackTick = 0
     @State private var playbackUpdates: Task<Void, Never>?
+    @State private var localURL: URL?
+    @State private var loadFailed = false
 
     var body: some View {
         HStack(spacing: AppSpacing.sm) {
@@ -219,7 +221,7 @@ private struct ChatAudioAttachment: View {
                     }
                 }
                 HStack {
-                    Text(message.kind == "voice" ? "Голосовое сообщение" : message.attachmentName ?? "Аудио")
+                    Text(loadFailed ? "Не удалось загрузить аудио" : message.kind == "voice" ? "Голосовое сообщение" : message.attachmentName ?? "Аудио")
                         .lineLimit(1)
                     Spacer()
                     Text(timeText)
@@ -235,6 +237,8 @@ private struct ChatAudioAttachment: View {
             playbackUpdates = nil
             player?.stop()
             isPlaying = false
+            if let localURL { try? FileManager.default.removeItem(at: localURL) }
+            localURL = nil
             AppAudioSession.deactivate()
         }
     }
@@ -285,11 +289,30 @@ private struct ChatAudioAttachment: View {
         }
     }
     private func load() async {
-        guard let path = message.contentPath,
-              let data = try? await appState.socialRepository.content(path: path),
-              let player = try? AVAudioPlayer(data: data) else { return }
-        player.prepareToPlay()
-        self.player = player
+        loadFailed = false
+        guard let path = message.contentPath else {
+            loadFailed = true
+            return
+        }
+        do {
+            let data = try await appState.socialRepository.content(path: path)
+            let fileExtension = message.attachmentName?
+                .split(separator: ".")
+                .last
+                .map(String.init) ?? (message.attachmentContentType == "audio/mp4" ? "m4a" : "audio")
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("chat-audio-\(message.id.uuidString)")
+                .appendingPathExtension(fileExtension)
+            try? FileManager.default.removeItem(at: url)
+            try data.write(to: url, options: .atomic)
+            let player = try AVAudioPlayer(contentsOf: url)
+            guard player.prepareToPlay() else { throw CocoaError(.fileReadCorruptFile) }
+            localURL = url
+            self.player = player
+        } catch {
+            player = nil
+            loadFailed = true
+        }
     }
 }
 

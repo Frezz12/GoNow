@@ -48,6 +48,8 @@ struct NotificationsView: View {
                     ChatConversationView(conversationID: id, title: title)
                 case .activity(let id):
                     ActivityDetailView(activityID: id, repository: appState.activityRepository)
+                case .profile(let id, let displayName, let avatarPath):
+                    PublicUserProfileView(userID: id, displayName: displayName, avatarPath: avatarPath)
                 case .social:
                     SocialHubView()
                 }
@@ -80,7 +82,7 @@ struct NotificationsView: View {
     private var notificationList: some View {
         List {
             ForEach(groupedNotifications, id: \.title) { group in
-                Section(group.title) {
+                Section {
                     ForEach(group.items) { notification in
                         NotificationRow(
                             notification: notification,
@@ -88,6 +90,7 @@ struct NotificationsView: View {
                             showsQuickActions: notification.quickAction != nil
                                 && !resolvedActionIDs.contains(notification.id),
                             open: { open(notification) },
+                            openActor: { openActor(notification) },
                             accept: { performAction(notification, decision: .accept) },
                             decline: { performAction(notification, decision: .decline) }
                         )
@@ -108,13 +111,25 @@ struct NotificationsView: View {
                                 .tint(AppColors.success)
                             }
                         }
+                        .padding(AppSpacing.md)
+                        .glassSurface(.regular, cornerRadius: AppRadius.card)
+                        .listRowInsets(EdgeInsets(
+                            top: AppSpacing.xs,
+                            leading: AppLayout.horizontalInset,
+                            bottom: AppSpacing.xs,
+                            trailing: AppLayout.horizontalInset
+                        ))
                         .listRowBackground(Color.clear)
-                        .listRowSeparatorTint(AppColors.divider)
+                        .listRowSeparator(.hidden)
                     }
+                } header: {
+                    Text(group.title)
+                        .font(AppTypography.captionStrong)
+                        .foregroundStyle(AppColors.textSecondary)
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .refreshable { await load(silently: true) }
     }
@@ -199,6 +214,12 @@ struct NotificationsView: View {
         }
         guard !notification.isRead else { return }
         Task { await markRead(notification) }
+    }
+
+    private func openActor(_ notification: GoNowNotification) {
+        guard let actorID = notification.actorId,
+              let actorName = notification.actorName else { return }
+        path.append(.profile(actorID, displayName: actorName, avatarPath: notification.actorAvatarPath))
     }
 
     private func openPendingPushIfNeeded() {
@@ -302,71 +323,94 @@ private extension GoNowNotification {
 }
 
 private struct NotificationRow: View {
+    @EnvironmentObject private var appState: AppState
     let notification: GoNowNotification
     let isProcessing: Bool
     let showsQuickActions: Bool
     let open: () -> Void
+    let openActor: () -> Void
     let accept: () -> Void
     let decline: () -> Void
+    @State private var actorAvatarData = Data()
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            Button(action: open) {
-                HStack(alignment: .top, spacing: AppSpacing.md) {
+            HStack(alignment: .top, spacing: AppSpacing.md) {
+                if notification.actorId != nil {
+                    Button(action: openActor) {
+                        actorAvatar
+                    }
+                    .buttonStyle(AppPressButtonStyle())
+                    .accessibilityLabel("Открыть профиль \(notification.actorName ?? "пользователя")")
+                } else {
                     categoryIcon
-                    VStack(alignment: .leading, spacing: AppSpacing.xxs) {
-                        Text(notification.title)
-                            .font(.body.weight(notification.isRead ? .medium : .bold))
-                            .foregroundStyle(AppColors.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(notification.body)
-                            .font(AppTypography.body)
-                            .foregroundStyle(AppColors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(notification.createdAt, format: .relative(presentation: .named))
-                            .font(AppTypography.caption)
-                            .foregroundStyle(AppColors.textMuted)
-                    }
-                    Spacer(minLength: 0)
-                    if notification.destination != nil {
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(AppColors.textMuted)
-                            .frame(width: 24, height: 44)
-                    }
                 }
-                .contentShape(Rectangle())
+
+                Button(action: open) {
+                    HStack(alignment: .top, spacing: AppSpacing.sm) {
+                        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                            Text(notification.title)
+                                .font(.body.weight(notification.isRead ? .medium : .bold))
+                                .foregroundStyle(AppColors.textPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(notification.body)
+                                .font(AppTypography.body)
+                                .foregroundStyle(AppColors.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(notification.createdAt, format: .relative(presentation: .named))
+                                .font(AppTypography.caption)
+                                .foregroundStyle(AppColors.textMuted)
+                        }
+                        Spacer(minLength: 0)
+                        if notification.destination != nil {
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(AppColors.textMuted)
+                                .frame(width: 24, height: 44)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             if showsQuickActions {
                 HStack(spacing: AppSpacing.sm) {
                     Button(action: accept) {
-                        Group {
-                            if isProcessing {
-                                ProgressView().tint(AppColors.textOnAccent)
-                            } else {
-                                Label("Принять", systemImage: "checkmark")
-                            }
-                        }
-                        .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTouchTarget)
+                        Label("Принять", systemImage: "checkmark")
+                            .opacity(isProcessing ? 0 : 1)
+                            .overlay { if isProcessing { ProgressView().tint(AppColors.textOnAccent) } }
+                            .frame(maxWidth: .infinity, minHeight: 54)
                     }
                     .buttonStyle(GradientPrimaryButtonStyle())
-                    .clipShape(Capsule())
                     .disabled(isProcessing)
 
                     Button(role: .destructive, action: decline) {
                         Label("Отклонить", systemImage: "xmark")
-                            .frame(maxWidth: .infinity, minHeight: AppLayout.minimumTouchTarget)
+                            .frame(maxWidth: .infinity, minHeight: 54)
                     }
                     .buttonStyle(GlassSecondaryButtonStyle(isDestructive: true))
-                    .clipShape(Capsule())
                     .disabled(isProcessing)
                 }
                 .padding(.leading, 48 + AppSpacing.md)
             }
         }
-        .padding(.vertical, AppSpacing.xs)
+        .task(id: notification.actorAvatarPath) {
+            guard let path = notification.actorAvatarPath else { return }
+            actorAvatarData = (try? await appState.socialRepository.content(path: path)) ?? Data()
+        }
+    }
+
+    private var actorAvatar: some View {
+        ProfileAvatar(
+            initials: notification.actorName?.initials ?? "?",
+            size: 48,
+            imageData: actorAvatarData
+        )
+        .frame(width: 48, height: 48)
+        .overlay(alignment: .topTrailing) { unreadIndicator }
     }
 
     private var categoryIcon: some View {
@@ -377,15 +421,18 @@ private struct NotificationRow: View {
                 .foregroundStyle(categoryColor)
         }
         .frame(width: 48, height: 48)
-        .overlay(alignment: .topTrailing) {
-            if !notification.isRead {
-                Circle()
-                    .fill(AppColors.accentSecondary)
-                    .frame(width: 12, height: 12)
-                    .overlay { Circle().stroke(AppColors.surfacePrimary, lineWidth: 2) }
-            }
-        }
+        .overlay(alignment: .topTrailing) { unreadIndicator }
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var unreadIndicator: some View {
+        if !notification.isRead {
+            Circle()
+                .fill(AppColors.accentSecondary)
+                .frame(width: 12, height: 12)
+                .overlay { Circle().stroke(AppColors.surfacePrimary, lineWidth: 2) }
+        }
     }
 
     private var categoryColor: Color {
