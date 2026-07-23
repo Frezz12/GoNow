@@ -35,18 +35,20 @@ struct ActivityApplicationsView: View {
 
     private func applicationCard(_ application: ActivityApplication) -> some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
-            HStack {
-                ProfileAvatar(initials: initials(application.applicant.displayName), size: 46, imageData: Data())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(application.applicant.displayName).font(AppTypography.cardTitle)
-                    Label(application.applicant.rating.formatted(.number.precision(.fractionLength(1))), systemImage: "star.fill")
-                        .font(AppTypography.caption)
-                        .foregroundStyle(AppColors.textSecondary)
-                }
-                Spacer()
-                Text(LocalizedStringKey(application.status.titleKey))
-                    .font(AppTypography.badge)
+            NavigationLink {
+                PublicUserProfileView(
+                    userID: application.applicant.id,
+                    displayName: application.applicant.displayName,
+                    avatarPath: application.applicant.avatarURL?.relativeString
+                )
+            } label: {
+                ActivityPersonRow(
+                    person: application.applicant,
+                    role: L10n.string(application.status.titleKey)
+                )
             }
+            .buttonStyle(AppPressButtonStyle())
+            .accessibilityLabel("Открыть профиль \(application.applicant.displayName)")
             if let message = application.message, !message.isEmpty { Text(message).font(AppTypography.body) }
             ForEach(application.answers, id: \.questionID) { answer in
                 Text(answer.value).font(AppTypography.caption).foregroundStyle(AppColors.textSecondary)
@@ -70,9 +72,6 @@ struct ActivityApplicationsView: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func initials(_ name: String) -> String {
-        name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
-    }
 }
 
 struct OwnedActivitiesView: View {

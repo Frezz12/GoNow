@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct ChatConversationView: View {
@@ -7,6 +8,9 @@ struct ChatConversationView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let conversationID: UUID
     let title: String
+    let conversationKind: String
+    let avatarPath: String?
+    let presenceText: String?
     @State private var messages: [ChatMessage] = []
     @State private var draft = ""
     @State private var isSending = false
@@ -22,7 +26,33 @@ struct ChatConversationView: View {
     @State private var activeUpload: ChatUploadPresentation?
     @State private var typingUserID: UUID?
     @State private var lastTypingSentAt = Date.distantPast
+    @State private var replyingTo: ChatMessage?
+    @State private var editingMessage: ChatMessage?
+    @State private var pendingDelete: ChatMessage?
+    @State private var showsConversationInfo = false
+    @State private var headerImageData = Data()
+    @State private var headerAvatarPath: String?
+    @FocusState private var composerFocused: Bool
     @StateObject private var voiceRecorder = VoiceMessageRecorder()
+
+    init(
+        conversationID: UUID,
+        title: String,
+        conversationKind: String = "direct",
+        avatarPath: String? = nil,
+        presenceText: String? = nil
+    ) {
+        self.conversationID = conversationID
+        self.title = title
+        self.conversationKind = conversationKind
+        self.avatarPath = avatarPath
+        self.presenceText = presenceText
+        _headerAvatarPath = State(initialValue: avatarPath)
+    }
+
+    private var isGroup: Bool {
+        conversationKind == "group" || conversationKind == "activity"
+    }
 
     var body: some View {
         ZStack {
@@ -40,7 +70,13 @@ struct ChatConversationView: View {
                                 .padding(.top, 80)
                             }
                             ForEach(messages) { message in
-                                ChatMessageRow(message: message) { vote(message) }
+                                ChatMessageRow(
+                                    message: message,
+                                    vote: { vote(message) },
+                                    reply: { beginReply(to: message) },
+                                    edit: { beginEditing(message) },
+                                    delete: { pendingDelete = message }
+                                )
                                     .id(message.id)
                             }
                             if let activeUpload {
@@ -80,10 +116,50 @@ struct ChatConversationView: View {
                 composer
             }
         }
-        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Button {
+                    if isGroup { showsConversationInfo = true }
+                } label: {
+                    HStack(spacing: AppSpacing.sm) {
+                        if isGroup {
+                            ProfileAvatar(initials: title.initials, size: 36, imageData: headerImageData)
+                        }
+                        VStack(alignment: isGroup ? .leading : .center, spacing: 1) {
+                            Text(title)
+                                .font(.headline)
+                                .foregroundStyle(AppColors.textPrimary)
+                                .lineLimit(1)
+                            if let presenceText {
+                                Text(presenceText)
+                                    .font(.caption2)
+                                    .foregroundStyle(AppColors.textSecondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        if isGroup {
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(AppColors.textMuted)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!isGroup)
+                .accessibilityLabel(isGroup ? "Информация о чате \(title)" : title)
+            }
+        }
         .task { await reload() }
         .task { await listenRealtime() }
+        .task(id: headerAvatarPath) {
+            guard let headerAvatarPath else {
+                headerImageData = Data()
+                return
+            }
+            headerImageData = (try? await appState.socialRepository.content(path: headerAvatarPath)) ?? Data()
+        }
         .refreshable { await reload() }
         .photosPicker(
             isPresented: $isMediaPickerPresented,
@@ -118,6 +194,14 @@ struct ChatConversationView: View {
             .presentationDetents([.medium])
             .presentationBackground(.ultraThinMaterial)
         }
+        .sheet(isPresented: $showsConversationInfo) {
+            GroupChatInfoSheet(conversationID: conversationID) { conversation in
+                headerAvatarPath = conversation.avatarPath
+            }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(.ultraThinMaterial)
+        }
         .sheet(item: $mediaDraft, onDismiss: {
             if let url = mediaDraftURLToCleanup { try? FileManager.default.removeItem(at: url) }
             mediaDraftURLToCleanup = nil
@@ -138,11 +222,33 @@ struct ChatConversationView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .confirmationDialog(
+            "Удалить сообщение?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Удалить", role: .destructive) {
+                guard let message = pendingDelete else { return }
+                pendingDelete = nil
+                deleteMessage(message)
+            }
+            Button("Отмена", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("Это действие нельзя отменить.")
+        }
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: AppSpacing.sm) {
-            if voiceRecorder.isRecording {
+        VStack(spacing: 0) {
+            if let contextMessage = editingMessage ?? replyingTo {
+                composerContext(message: contextMessage, isEditing: editingMessage != nil)
+            }
+
+            HStack(alignment: .bottom, spacing: AppSpacing.sm) {
+                if voiceRecorder.isRecording {
                 Button { voiceRecorder.cancel() } label: {
                     Image(systemName: "trash")
                         .foregroundStyle(AppColors.error)
@@ -163,7 +269,7 @@ struct ChatConversationView: View {
                 }
                 .buttonStyle(AppPressButtonStyle())
                 .accessibilityLabel("Отправить голосовое сообщение")
-            } else {
+                } else {
                 Menu {
                     Button { isMediaPickerPresented = true } label: {
                         Label("Фото или видео", systemImage: "photo.on.rectangle")
@@ -190,7 +296,7 @@ struct ChatConversationView: View {
                     .frame(width: 44, height: 44)
                     .glassSurface(.subtle, cornerRadius: 22)
                 }
-                .disabled(isUploadingAttachment || isPreparingAttachment)
+                .disabled(isUploadingAttachment || isPreparingAttachment || editingMessage != nil)
                 .accessibilityLabel("Добавить вложение или предложение")
 
                 TextField("Сообщение", text: $draft, axis: .vertical)
@@ -200,6 +306,7 @@ struct ChatConversationView: View {
                     .glassSurface(.regular, cornerRadius: 23)
                     .submitLabel(.send)
                     .onSubmit { sendText() }
+                    .focused($composerFocused)
 
                 Button(action: draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? startVoiceRecording : sendText) {
                     Image(systemName: actionSymbol)
@@ -211,13 +318,44 @@ struct ChatConversationView: View {
                 .buttonStyle(AppPressButtonStyle())
                 .disabled(isSending || isUploadingAttachment || isPreparingAttachment)
                 .accessibilityLabel(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Записать голосовое сообщение" : "Отправить")
+                }
             }
+            .padding(.horizontal, AppLayout.horizontalInset)
+            .padding(.top, AppSpacing.sm)
+            .padding(.bottom, AppSpacing.sm)
         }
-        .padding(.horizontal, AppLayout.horizontalInset)
-        .padding(.top, AppSpacing.sm)
-        .padding(.bottom, AppSpacing.sm)
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider().opacity(0.35) }
+    }
+
+    private func composerContext(message: ChatMessage, isEditing: Bool) -> some View {
+        HStack(spacing: AppSpacing.sm) {
+            Rectangle()
+                .fill(AppColors.accentPrimary)
+                .frame(width: 3, height: 38)
+            Image(systemName: isEditing ? "pencil" : "arrowshape.turn.up.left.fill")
+                .foregroundStyle(AppColors.accentPrimary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isEditing ? "Редактирование" : "Ответ для \(message.senderName)")
+                    .font(AppTypography.captionStrong)
+                    .foregroundStyle(AppColors.accentPrimary)
+                Text(message.body)
+                    .font(AppTypography.caption)
+                    .foregroundStyle(AppColors.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button { cancelComposerContext() } label: {
+                Image(systemName: "xmark")
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isEditing ? "Отменить редактирование" : "Отменить ответ")
+        }
+        .padding(.leading, AppLayout.horizontalInset)
+        .padding(.trailing, max(0, AppLayout.horizontalInset - 8))
+        .padding(.top, AppSpacing.sm)
     }
 
     private var actionSymbol: String {
@@ -244,6 +382,10 @@ struct ChatConversationView: View {
                     switch event.event {
                     case "message", "messageUpdated":
                         await refreshMessage(event.messageId)
+                    case "messageDeleted":
+                        removeMessage(event.messageId)
+                    case "read":
+                        markOutgoingMessagesRead(by: event.userId)
                     case "typing": showTyping(userID: event.userId)
                     default: break
                     }
@@ -289,10 +431,17 @@ struct ChatConversationView: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
-        Task { await send(kind: "text", body: text, detail: nil) }
+        if let editingMessage {
+            self.editingMessage = nil
+            Task { await editMessage(editingMessage, body: text) }
+        } else {
+            let replyToID = replyingTo?.id
+            replyingTo = nil
+            Task { await send(kind: "text", body: text, detail: nil, replyToID: replyToID) }
+        }
     }
 
-    private func send(kind: String, body: String, detail: String?) async {
+    private func send(kind: String, body: String, detail: String?, replyToID: UUID? = nil) async {
         isSending = true
         defer { isSending = false }
         do {
@@ -300,7 +449,8 @@ struct ChatConversationView: View {
                 conversationID: conversationID,
                 kind: kind,
                 body: body,
-                detail: detail
+                detail: detail,
+                replyToID: replyToID
             )
             appendIfNeeded(message)
         } catch { errorMessage = error.localizedDescription }
@@ -311,6 +461,71 @@ struct ChatConversationView: View {
             messages[index] = message
         } else {
             messages.append(message)
+        }
+    }
+
+    private func beginReply(to message: ChatMessage) {
+        editingMessage = nil
+        replyingTo = message
+        composerFocused = true
+    }
+
+    private func beginEditing(_ message: ChatMessage) {
+        guard message.canEdit else { return }
+        replyingTo = nil
+        editingMessage = message
+        draft = message.body
+        composerFocused = true
+    }
+
+    private func cancelComposerContext() {
+        if editingMessage != nil { draft = "" }
+        editingMessage = nil
+        replyingTo = nil
+    }
+
+    private func editMessage(_ message: ChatMessage, body: String) async {
+        isSending = true
+        defer { isSending = false }
+        do {
+            appendIfNeeded(try await appState.socialRepository.editMessage(
+                conversationID: conversationID,
+                messageID: message.id,
+                body: body
+            ))
+        } catch {
+            draft = body
+            editingMessage = message
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func deleteMessage(_ message: ChatMessage) {
+        Task {
+            do {
+                try await appState.socialRepository.deleteMessage(
+                    conversationID: conversationID,
+                    messageID: message.id
+                )
+                removeMessage(message.id)
+            } catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    private func removeMessage(_ messageID: UUID?) {
+        guard let messageID else { return }
+        messages.removeAll { $0.id == messageID }
+        if replyingTo?.id == messageID { replyingTo = nil }
+        if editingMessage?.id == messageID {
+            editingMessage = nil
+            draft = ""
+        }
+    }
+
+    private func markOutgoingMessagesRead(by userID: UUID?) {
+        guard userID != nil, userID != appState.currentUser?.id else { return }
+        for index in messages.indices where messages[index].isMine {
+            messages[index].isRead = true
         }
     }
 
@@ -495,6 +710,7 @@ struct ChatConversationView: View {
         if activeUpload?.id == presentationID {
             activeUpload?.phase = .uploading(0)
         }
+        let replyToID = replyingTo?.id
         defer {
             isUploadingAttachment = false
             if activeUpload?.id == presentationID { activeUpload = nil }
@@ -507,6 +723,7 @@ struct ChatConversationView: View {
                 fileName: fileName,
                 contentType: contentType,
                 duration: duration,
+                replyToID: replyToID,
                 progress: { value in
                     Task { @MainActor in
                         guard activeUpload?.id == presentationID else { return }
@@ -514,6 +731,7 @@ struct ChatConversationView: View {
                     }
                 }
             )
+            if replyingTo?.id == replyToID { replyingTo = nil }
             appendIfNeeded(message)
         } catch { errorMessage = error.localizedDescription }
     }
@@ -586,8 +804,13 @@ private struct VoiceRecordingIndicator: View {
 }
 
 private struct ChatMessageRow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let message: ChatMessage
     let vote: () -> Void
+    let reply: () -> Void
+    let edit: () -> Void
+    let delete: () -> Void
+    @State private var dragOffset: CGFloat = 0
 
     var body: some View {
         if message.kind == "system" {
@@ -599,7 +822,39 @@ private struct ChatMessageRow: View {
                 .padding(.vertical, AppSpacing.sm)
                 .glassSurface(.subtle, cornerRadius: AppRadius.control)
                 .frame(maxWidth: .infinity)
-        } else if message.isInvitation {
+        } else {
+            ZStack(alignment: .trailing) {
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .foregroundStyle(AppColors.accentPrimary)
+                    .frame(width: 44, height: 44)
+                    .opacity(Double(min(CGFloat(1), abs(dragOffset) / CGFloat(52))))
+                    .accessibilityHidden(true)
+                messageContent
+                    .offset(x: dragOffset)
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(swipeGesture)
+            .contextMenu {
+                Button(action: reply) {
+                    Label("Ответить", systemImage: "arrowshape.turn.up.left")
+                }
+                if message.canEdit {
+                    Button(action: edit) {
+                        Label("Редактировать", systemImage: "pencil")
+                    }
+                }
+                if message.canDelete {
+                    Button(role: .destructive, action: delete) {
+                        Label("Удалить", systemImage: "trash")
+                    }
+                }
+            }
+            .accessibilityAction(named: "Ответить", reply)
+        }
+    }
+
+    @ViewBuilder private var messageContent: some View {
+        if message.isInvitation {
             invitationCard
                 .frame(maxWidth: 340)
                 .frame(maxWidth: .infinity, alignment: message.isMine ? .trailing : .leading)
@@ -612,40 +867,46 @@ private struct ChatMessageRow: View {
                 .frame(maxWidth: 340, alignment: message.isMine ? .trailing : .leading)
                 .frame(maxWidth: .infinity, alignment: message.isMine ? .trailing : .leading)
         } else {
-            VStack(alignment: message.isMine ? .trailing : .leading, spacing: 3) {
-                if !message.isMine {
-                    Text(message.senderName)
-                        .font(AppTypography.badge)
-                        .foregroundStyle(AppColors.accentPrimary)
-                }
+            textMessage
+        }
+    }
+
+    private var textMessage: some View {
+        VStack(alignment: message.isMine ? .trailing : .leading, spacing: 3) {
+            if !message.isMine {
+                Text(message.senderName)
+                    .font(AppTypography.badge)
+                    .foregroundStyle(AppColors.accentPrimary)
+            }
+            VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                replyPreview(onAccent: message.isMine)
                 Text(message.body)
                     .font(AppTypography.body)
                     .foregroundStyle(message.isMine ? AppColors.textOnAccent : AppColors.textPrimary)
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, 11)
-                    .background(
-                        message.isMine
-                            ? AnyShapeStyle(AppGradients.brand)
-                            : AnyShapeStyle(AppColors.accentPrimary.opacity(0.14)),
-                        in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    )
-                    .overlay {
-                        if !message.isMine {
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .strokeBorder(AppColors.accentPrimary.opacity(0.28), lineWidth: 1)
-                        }
-                    }
-                Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                    .font(.caption2)
-                    .foregroundStyle(AppColors.textMuted)
             }
-            .frame(maxWidth: 310, alignment: message.isMine ? .trailing : .leading)
-            .frame(maxWidth: .infinity, alignment: message.isMine ? .trailing : .leading)
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, 11)
+            .background(
+                message.isMine
+                    ? AnyShapeStyle(AppGradients.brand)
+                    : AnyShapeStyle(AppColors.accentPrimary.opacity(0.14)),
+                in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            )
+            .overlay {
+                if !message.isMine {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(AppColors.accentPrimary.opacity(0.28), lineWidth: 1)
+                }
+            }
+            messageMeta
         }
+        .frame(maxWidth: 310, alignment: message.isMine ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: message.isMine ? .trailing : .leading)
     }
 
     private var invitationCard: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            replyPreview(onAccent: false)
             Label("Приглашение", systemImage: "figure.walk.motion")
                 .font(AppTypography.captionStrong)
                 .foregroundStyle(AppColors.accentPrimary)
@@ -653,10 +914,7 @@ private struct ChatMessageRow: View {
                 .font(AppTypography.body)
                 .foregroundStyle(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                .font(.caption2)
-                .foregroundStyle(AppColors.textMuted)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            messageMeta.frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(AppSpacing.md)
         .background(AppColors.accentPrimary.opacity(0.1), in: RoundedRectangle(cornerRadius: AppRadius.card, style: .continuous))
@@ -673,6 +931,7 @@ private struct ChatMessageRow: View {
                     .font(AppTypography.badge)
                     .foregroundStyle(AppColors.accentPrimary)
             }
+            replyPreview(onAccent: false)
             ChatAttachmentView(message: message)
             HStack {
                 if showsAttachmentCaption {
@@ -682,9 +941,7 @@ private struct ChatMessageRow: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                    .font(.caption2)
-                    .foregroundStyle(AppColors.textMuted)
+                messageMeta
             }
         }
         .padding(AppSpacing.sm)
@@ -697,6 +954,7 @@ private struct ChatMessageRow: View {
 
     private var proposalCard: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            replyPreview(onAccent: false)
             Label(
                 message.kind == "placeProposal" ? "Предложение места" : "Предложение времени",
                 systemImage: message.kind == "placeProposal" ? "mappin.and.ellipse" : "calendar.badge.clock"
@@ -723,9 +981,68 @@ private struct ChatMessageRow: View {
             }
             .buttonStyle(.plain)
             .disabled(message.isVoted)
+            messageMeta.frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(AppSpacing.md)
         .glassSurface(.prominent, cornerRadius: AppRadius.card)
+    }
+
+    @ViewBuilder private func replyPreview(onAccent: Bool) -> some View {
+        if message.replyToId != nil {
+            HStack(spacing: AppSpacing.sm) {
+                Rectangle()
+                    .fill(onAccent ? AppColors.textOnAccent.opacity(0.85) : AppColors.accentPrimary)
+                    .frame(width: 3)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(message.replyToSenderName ?? "Сообщение")
+                        .font(AppTypography.captionStrong)
+                    Text(message.replyToBody ?? "Сообщение удалено")
+                        .font(AppTypography.caption)
+                        .lineLimit(2)
+                }
+                .foregroundStyle(onAccent ? AppColors.textOnAccent : AppColors.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var messageMeta: some View {
+        HStack(spacing: 5) {
+            if message.editedAt != nil {
+                Text("изменено")
+            }
+            Text(message.createdAt.formatted(date: .omitted, time: .shortened))
+            if message.isMine {
+                HStack(spacing: -5) {
+                    Image(systemName: "checkmark")
+                    if message.isRead { Image(systemName: "checkmark") }
+                }
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(message.isRead ? AppColors.accentPrimary : AppColors.textMuted)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(message.isRead ? "Прочитано" : "Не прочитано")
+            }
+        }
+        .font(.caption2)
+        .foregroundStyle(AppColors.textMuted)
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 18)
+            .onChanged { value in
+                guard value.translation.width < 0,
+                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                dragOffset = max(-72, value.translation.width)
+            }
+            .onEnded { value in
+                let shouldReply = value.translation.width < -52
+                    && abs(value.translation.width) > abs(value.translation.height)
+                withAnimation(reduceMotion ? nil : AppAnimation.standard) { dragOffset = 0 }
+                if shouldReply {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    reply()
+                }
+            }
     }
 }
 

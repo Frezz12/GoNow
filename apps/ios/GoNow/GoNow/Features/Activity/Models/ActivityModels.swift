@@ -235,6 +235,8 @@ struct ActivityPhoto: Codable, Identifiable, Equatable, Sendable {
 struct GoNowActivity: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let creatorID: UUID
+    let creator: ActivityApplicant?
+    let participants: [ActivityApplicant]?
     let title: String
     let description: String
     let category: ActivityCategory
@@ -270,6 +272,7 @@ struct GoNowActivity: Codable, Identifiable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case creatorID = "creatorId"
+        case creator, participants
         case title, description, category, photos, location, startsAt, durationMinutes, showAfter, hideAfter
         case participantCount, participantLimit, joinPolicy, ageMin, ageMax, languages, skillLevel
         case costType, costAmountCents, costNote, bringItems, rules, additionalQuestions, status

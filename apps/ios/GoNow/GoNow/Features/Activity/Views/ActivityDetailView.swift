@@ -53,7 +53,13 @@ struct ActivityDetailView: View {
         .sheet(isPresented: $isChatPresented) {
             if let activity = model.activity, let conversationID = activity.chatConversationID {
                 NavigationStack {
-                    ChatConversationView(conversationID: conversationID, title: activity.title)
+                    ChatConversationView(
+                        conversationID: conversationID,
+                        title: activity.title,
+                        conversationKind: "activity",
+                        avatarPath: activity.photos.first(where: \.isCover)?.contentPath ?? activity.photos.first?.contentPath,
+                        presenceText: "\(activity.participantCount) участников"
+                    )
                 }
             }
         }
@@ -146,11 +152,15 @@ struct ActivityDetailContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.lg) {
             if let coverPhotoData, let image = UIImage(data: coverPhotoData) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
+                Color.clear
                     .frame(maxWidth: .infinity)
                     .frame(height: 220)
+                    .overlay {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    }
+                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: AppRadius.card, style: .continuous))
                     .accessibilityLabel("activity.photos.cover")
             } else {
@@ -180,6 +190,19 @@ struct ActivityDetailContent: View {
                 Label(LocalizedStringKey(activity.skillLevel.titleKey), systemImage: "chart.bar.fill")
                 if !activity.languages.isEmpty { Label(activity.languages.joined(separator: ", "), systemImage: "globe") }
             }
+            if activity.creator != nil || !(activity.participants ?? []).isEmpty {
+                ActivityFormSection("activity.participants.title") {
+                    VStack(spacing: AppSpacing.sm) {
+                        if let creator = activity.creator {
+                            personLink(creator, role: "Организатор")
+                        }
+                        ForEach(activity.participants ?? []) { participant in
+                            Divider().overlay(AppColors.divider)
+                            personLink(participant, role: nil)
+                        }
+                    }
+                }
+            }
             if !activity.bringItems.isEmpty || !activity.rules.isEmpty {
                 ActivityFormSection("activity.detail.preparation") {
                     ForEach(activity.bringItems, id: \.self) { Label($0, systemImage: "bag.fill") }
@@ -194,6 +217,53 @@ struct ActivityDetailContent: View {
             return L10n.format("activity.participants.current %lld", activity.participantCount)
         }
         return L10n.format("activity.participants.current_limit %lld %lld", activity.participantCount, limit)
+    }
+
+    private func personLink(_ person: ActivityApplicant, role: String?) -> some View {
+        NavigationLink {
+            PublicUserProfileView(
+                userID: person.id,
+                displayName: person.displayName,
+                avatarPath: person.avatarURL?.relativeString
+            )
+        } label: {
+            ActivityPersonRow(person: person, role: role)
+        }
+        .buttonStyle(AppPressButtonStyle())
+        .accessibilityLabel("Открыть профиль \(person.displayName)")
+    }
+}
+
+struct ActivityPersonRow: View {
+    @EnvironmentObject private var appState: AppState
+    let person: ActivityApplicant
+    let role: String?
+    @State private var avatarData = Data()
+
+    var body: some View {
+        HStack(spacing: AppSpacing.md) {
+            ProfileAvatar(initials: person.displayName.initials, size: 46, imageData: avatarData)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(person.displayName)
+                    .font(AppTypography.bodyMedium)
+                    .foregroundStyle(AppColors.textPrimary)
+                if let role {
+                    Text(role)
+                        .font(AppTypography.caption)
+                        .foregroundStyle(AppColors.textSecondary)
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(AppColors.textMuted)
+                .frame(width: 24, height: AppLayout.minimumTouchTarget)
+        }
+        .contentShape(Rectangle())
+        .task(id: person.avatarURL) {
+            guard let path = person.avatarURL?.relativeString else { return }
+            avatarData = (try? await appState.socialRepository.content(path: path)) ?? Data()
+        }
     }
 }
 

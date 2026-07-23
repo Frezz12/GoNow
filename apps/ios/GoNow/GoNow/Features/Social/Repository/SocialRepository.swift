@@ -127,6 +127,67 @@ actor SocialRepository {
         return response.data
     }
 
+    func createGroup(title: String, memberIDs: [UUID]) async throws -> Conversation {
+        let response: APIEnvelope<Conversation> = try await api.post(
+            "social/conversations/groups",
+            body: CreateGroupPayload(title: title, memberIds: memberIDs),
+            authenticated: true
+        )
+        return response.data
+    }
+
+    func conversationDetails(_ conversationID: UUID) async throws -> ConversationDetails {
+        let response: APIEnvelope<ConversationDetails> = try await api.getFresh(
+            "social/conversations/\(conversationID.uuidString)"
+        )
+        return response.data
+    }
+
+    func archiveConversation(_ conversationID: UUID, archived: Bool) async throws -> Conversation {
+        let response: APIEnvelope<Conversation> = try await api.patch(
+            "social/conversations/\(conversationID.uuidString)",
+            body: ArchiveConversationPayload(archived: archived)
+        )
+        return response.data
+    }
+
+    func addConversationMember(_ userID: UUID, conversationID: UUID) async throws -> AddConversationMemberResult {
+        let response: APIEnvelope<AddConversationMemberResult> = try await api.post(
+            "social/conversations/\(conversationID.uuidString)/members",
+            body: TargetUserPayload(userId: userID),
+            authenticated: true
+        )
+        return response.data
+    }
+
+    func conversationInvitations() async throws -> [ConversationInvitation] {
+        let response: APIEnvelope<[ConversationInvitation]> = try await api.get(
+            "social/conversation-invitations"
+        )
+        return response.data
+    }
+
+    func decideConversationInvitation(_ invitationID: UUID, action: String) async throws -> ConversationInvitation {
+        let response: APIEnvelope<ConversationInvitation> = try await api.patch(
+            "social/conversation-invitations/\(invitationID.uuidString)",
+            body: DecisionPayload(action: action)
+        )
+        return response.data
+    }
+
+    func uploadConversationAvatar(_ conversationID: UUID, data: Data) async throws -> Conversation {
+        let response: APIEnvelope<Conversation> = try await api.uploadFile(
+            "social/conversations/\(conversationID.uuidString)/avatar",
+            data: data,
+            fileName: "chat-avatar.jpg",
+            contentType: "image/jpeg"
+        )
+        if let path = response.data.avatarPath {
+            await api.cacheData(data, for: path)
+        }
+        return response.data
+    }
+
     func messages(conversationID: UUID) async throws -> [ChatMessage] {
         let response: APIEnvelope<[ChatMessage]> = try await api.getFresh(
             "social/conversations/\(conversationID.uuidString)/messages"
@@ -145,14 +206,34 @@ actor SocialRepository {
         conversationID: UUID,
         kind: String = "text",
         body: String,
-        detail: String? = nil
+        detail: String? = nil,
+        replyToID: UUID? = nil
     ) async throws -> ChatMessage {
         let response: APIEnvelope<ChatMessage> = try await api.post(
             "social/conversations/\(conversationID.uuidString)/messages",
-            body: SendMessagePayload(kind: kind, body: body, proposalDetail: detail),
+            body: SendMessagePayload(
+                kind: kind,
+                body: body,
+                proposalDetail: detail,
+                replyToId: replyToID
+            ),
             authenticated: true
         )
         return response.data
+    }
+
+    func editMessage(conversationID: UUID, messageID: UUID, body: String) async throws -> ChatMessage {
+        let response: APIEnvelope<ChatMessage> = try await api.patch(
+            "social/conversations/\(conversationID.uuidString)/messages/\(messageID.uuidString)",
+            body: EditMessagePayload(body: body)
+        )
+        return response.data
+    }
+
+    func deleteMessage(conversationID: UUID, messageID: UUID) async throws {
+        try await api.delete(
+            "social/conversations/\(conversationID.uuidString)/messages/\(messageID.uuidString)"
+        )
     }
 
     func vote(conversationID: UUID, messageID: UUID) async throws -> ChatMessage {
@@ -171,11 +252,15 @@ actor SocialRepository {
         fileName: String,
         contentType: String,
         duration: Double? = nil,
+        replyToID: UUID? = nil,
         progress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> ChatMessage {
         var query = [URLQueryItem(name: "kind", value: kind)]
         if let duration {
             query.append(URLQueryItem(name: "durationSeconds", value: String(duration)))
+        }
+        if let replyToID {
+            query.append(URLQueryItem(name: "replyToId", value: replyToID.uuidString))
         }
         let response: APIEnvelope<ChatMessage> = try await api.uploadFile(
             "social/conversations/\(conversationID.uuidString)/attachments",
@@ -223,6 +308,11 @@ private struct UpdatePrivacyPayload: Encodable, Sendable {
 private struct TargetUserPayload: Encodable, Sendable { let userId: UUID }
 private struct DecisionPayload: Encodable, Sendable { let action: String }
 private struct EmptySocialPayload: Encodable, Sendable { }
+private struct CreateGroupPayload: Encodable, Sendable {
+    let title: String
+    let memberIds: [UUID]
+}
+private struct ArchiveConversationPayload: Encodable, Sendable { let archived: Bool }
 
 private struct CreateInvitationPayload: Encodable, Sendable {
     let recipientId: UUID
@@ -238,5 +328,7 @@ private struct SendMessagePayload: Encodable, Sendable {
     let kind: String
     let body: String
     let proposalDetail: String?
+    let replyToId: UUID?
 }
+private struct EditMessagePayload: Encodable, Sendable { let body: String }
 private struct ChatSocketCommand: Encodable, Sendable { let event: String }

@@ -128,9 +128,65 @@ struct Conversation: Codable, Identifiable, Sendable, Equatable {
     let title: String
     let participantId: UUID?
     let avatarPath: String?
+    let activityId: UUID?
+    let createdById: UUID?
     let lastMessage: String?
     let lastMessageAt: Date?
     let unreadCount: Int
+    let memberCount: Int
+    let isArchived: Bool
+    let isOnline: Bool
+    let lastSeenAt: Date?
+
+    var isGroup: Bool { kind == "group" || kind == "activity" }
+    var presenceText: String? {
+        guard kind == "direct" else { return "\(memberCount) участников" }
+        if isOnline { return "в сети" }
+        guard let lastSeenAt else { return nil }
+        return Self.lastSeenText(lastSeenAt)
+    }
+
+    static func lastSeenText(_ date: Date) -> String {
+        let minutes = max(0, Int(Date.now.timeIntervalSince(date) / 60))
+        if minutes < 1 { return "был(а) в сети недавно" }
+        if minutes < 60 { return "был(а) в сети \(minutes) мин назад" }
+        let hours = minutes / 60
+        if hours < 24 { return "был(а) в сети \(hours) ч назад" }
+        return "был(а) в сети \(date.formatted(date: .abbreviated, time: .omitted))"
+    }
+}
+
+struct ConversationMember: Codable, Identifiable, Sendable, Hashable {
+    let id: UUID
+    let displayName: String
+    let avatarPath: String?
+    let isCreator: Bool
+    let isFriend: Bool
+    let isOnline: Bool
+    let lastSeenAt: Date
+
+    var presenceText: String {
+        isOnline ? "в сети" : Conversation.lastSeenText(lastSeenAt)
+    }
+}
+
+struct ConversationDetails: Codable, Sendable, Equatable {
+    let conversation: Conversation
+    let members: [ConversationMember]
+}
+
+struct ConversationInvitation: Codable, Identifiable, Sendable, Equatable {
+    let id: UUID
+    let conversationId: UUID
+    let conversationTitle: String
+    let inviterId: UUID
+    let inviterName: String
+    let status: String
+    let createdAt: Date
+}
+
+struct AddConversationMemberResult: Codable, Sendable, Equatable {
+    let status: String
 }
 
 struct ChatMessage: Codable, Identifiable, Sendable, Equatable {
@@ -144,16 +200,24 @@ struct ChatMessage: Codable, Identifiable, Sendable, Equatable {
     let voteCount: Int
     let isVoted: Bool
     let isMine: Bool
+    var isRead: Bool
+    let replyToId: UUID?
+    let replyToSenderName: String?
+    let replyToBody: String?
+    let replyToKind: String?
     let attachmentName: String?
     let attachmentContentType: String?
     let attachmentBytes: Int?
     let durationSeconds: Double?
     let contentPath: String?
+    let editedAt: Date?
     let createdAt: Date
 
     var isProposal: Bool { kind == "placeProposal" || kind == "timeProposal" }
     var isInvitation: Bool { kind == "invitation" }
     var isAttachment: Bool { ["image", "video", "file", "audio", "voice"].contains(kind) }
+    var canEdit: Bool { isMine && kind == "text" }
+    var canDelete: Bool { isMine && kind != "system" && kind != "invitation" }
 }
 
 struct ChatRealtimeEvent: Codable, Sendable, Equatable {

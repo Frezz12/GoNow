@@ -248,12 +248,38 @@ pub fn router(state: AppState) -> Router {
             get(social::conversations).post(social::create_direct_conversation),
         )
         .route(
+            "/api/v1/social/conversations/groups",
+            post(social::create_group_conversation),
+        )
+        .route(
+            "/api/v1/social/conversation-invitations",
+            get(social::conversation_invitations),
+        )
+        .route(
+            "/api/v1/social/conversation-invitations/{invitation_id}",
+            axum::routing::patch(social::decide_conversation_invitation),
+        )
+        .route(
+            "/api/v1/social/conversations/{conversation_id}",
+            get(social::conversation_details).patch(social::archive_conversation),
+        )
+        .route(
+            "/api/v1/social/conversations/{conversation_id}/members",
+            post(social::add_conversation_member),
+        )
+        .route(
+            "/api/v1/social/conversations/{conversation_id}/avatar",
+            get(social::download_conversation_avatar).post(social::upload_conversation_avatar),
+        )
+        .route(
             "/api/v1/social/conversations/{conversation_id}/messages",
             get(social::messages).post(social::send_message),
         )
         .route(
             "/api/v1/social/conversations/{conversation_id}/messages/{message_id}",
-            get(social::message),
+            get(social::message)
+                .patch(social::edit_message)
+                .delete(social::delete_message),
         )
         .route(
             "/api/v1/social/conversations/{conversation_id}/messages/{message_id}/vote",

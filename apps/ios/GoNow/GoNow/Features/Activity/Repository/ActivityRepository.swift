@@ -242,6 +242,14 @@ actor MockActivityRepository: ActivityRepository {
         let activity = GoNowActivity(
             id: activityID,
             creatorID: organizerID,
+            creator: ActivityApplicant(
+                id: organizerID,
+                displayName: "Организатор",
+                rating: 5,
+                organizedActivities: 1,
+                avatarURL: nil
+            ),
+            participants: [],
             title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
             description: draft.description.trimmingCharacters(in: .whitespacesAndNewlines),
             category: draft.category,
@@ -297,7 +305,8 @@ actor MockActivityRepository: ActivityRepository {
             longitude: changes.longitude ?? old.location.coordinate.longitude
         )
         let updated = GoNowActivity(
-            id: old.id, creatorID: old.creatorID, title: old.title,
+            id: old.id, creatorID: old.creatorID, creator: old.creator, participants: old.participants,
+            title: old.title,
             description: changes.description ?? old.description, category: old.category,
             photos: old.photos,
             location: ActivityLocation(
@@ -362,7 +371,8 @@ actor MockActivityRepository: ActivityRepository {
     func duplicate(activityID: UUID) async throws -> GoNowActivity {
         guard let source = activitiesByID[activityID] else { throw ActivityRepositoryError.activityNotFound }
         let copy = GoNowActivity(
-            id: UUID(), creatorID: source.creatorID, title: source.title,
+            id: UUID(), creatorID: source.creatorID, creator: source.creator, participants: [],
+            title: source.title,
             description: source.description, category: source.category, photos: source.photos,
             location: source.location,
             startsAt: Date(), durationMinutes: source.durationMinutes, showAfter: Date(), hideAfter: nil,

@@ -368,8 +368,15 @@ pub async fn live(
 
 async fn notification_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let mut events = state.notification_events.subscribe();
+    let mut presence_heartbeat = tokio::time::interval(StdDuration::from_secs(60));
     loop {
         tokio::select! {
+            _ = presence_heartbeat.tick() => {
+                let _ = sqlx::query("UPDATE users SET last_seen_at = NOW() WHERE id = $1")
+                    .bind(user_id)
+                    .execute(&state.db)
+                    .await;
+            }
             incoming = socket.next() => {
                 let Some(Ok(message)) = incoming else { break };
                 match message {
