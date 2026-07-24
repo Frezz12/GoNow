@@ -1,4 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">GoNow</string>
+    <string name="app_name" translatable="false">GoNow</string>
+    <string name="tab_map">Map</string>
+    <string name="tab_tasks">Tasks</string>
+    <string name="tab_chat">Chat</string>
+    <string name="tab_profile">Profile</string>
+    <string name="settings_title">Settings</string>
+    <string name="common_done">Done</string>
+    <string name="common_retry">Try again</string>
+    <string name="common_close">Close</string>
+    <string name="common_save">Save</string>
+    <string name="settings_theme_title">Appearance</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_language_title">Language and Region</string>
+    <string name="settings_language_system">System language</string>
+    <string name="settings_weather_title">Weather</string>
+    <string name="settings_temperature_title">Temperature</string>
+    <string name="settings_temperature_automatic">Automatic</string>
+    <string name="settings_account_title">Account</string>
+    <string name="settings_account_description">Signing out ends the session only on this device.</string>
+    <string name="settings_sign_out">Sign out</string>
 </resources>

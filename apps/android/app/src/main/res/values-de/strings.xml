@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tab_map">Karte</string><string name="tab_tasks">Aufgaben</string><string name="tab_chat">Chat</string><string name="tab_profile">Profil</string>
+    <string name="settings_title">Einstellungen</string><string name="common_done">Fertig</string><string name="common_retry">Erneut versuchen</string><string name="common_close">Schließen</string><string name="common_save">Speichern</string>
+    <string name="settings_theme_title">Erscheinungsbild</string><string name="settings_theme_system">System</string><string name="settings_theme_light">Hell</string><string name="settings_theme_dark">Dunkel</string>
+    <string name="settings_language_title">Sprache und Region</string><string name="settings_language_system">Systemsprache</string><string name="settings_weather_title">Wetter</string><string name="settings_temperature_title">Temperatur</string><string name="settings_temperature_automatic">Automatisch</string>
+    <string name="settings_account_title">Konto</string><string name="settings_account_description">Die Abmeldung beendet nur die Sitzung auf diesem Gerät.</string><string name="settings_sign_out">Abmelden</string>
+</resources>

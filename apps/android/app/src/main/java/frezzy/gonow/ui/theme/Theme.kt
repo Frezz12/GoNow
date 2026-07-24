@@ -16,7 +16,11 @@ import frezzy.gonow.core.SettingsPrefs
 private val LightColors = lightColorScheme(
     primary = Color(0xFF7547E8),
     onPrimary = Color.White,
+    primaryContainer = Color(0xFFE9DFFF),
+    onPrimaryContainer = Color(0xFF2D1268),
     secondary = Color(0xFFE85CA8),
+    secondaryContainer = Color(0xFFFFD8EC),
+    onSecondaryContainer = Color(0xFF561039),
     background = Color(0xFFF6F5FA),
     onBackground = Color(0xFF181620),
     surface = Color.White,
@@ -29,8 +33,12 @@ private val LightColors = lightColorScheme(
 
 private val DarkColors = darkColorScheme(
     primary = Color(0xFF8B5CF6),
-    onPrimary = Color.Black,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF392366),
+    onPrimaryContainer = Color(0xFFEADDFF),
     secondary = Color(0xFFF472B6),
+    secondaryContainer = Color(0xFF5A2343),
+    onSecondaryContainer = Color(0xFFFFD8EA),
     background = Color(0xFF0B0B14),
     onBackground = Color(0xFFF7F5FF),
     surface = Color(0xFF171624),

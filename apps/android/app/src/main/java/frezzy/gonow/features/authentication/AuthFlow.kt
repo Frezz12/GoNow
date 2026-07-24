@@ -8,13 +8,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import frezzy.gonow.ui.theme.AuthBackdrop
 
 @Composable
 fun AuthFlow(
     viewModel: AuthViewModel
 ) {
-    val state = viewModel.uiState
+    val state by viewModel.uiStateFlow.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Login / Register
@@ -40,10 +41,13 @@ fun AuthFlow(
             } else {
                 RegisterScreen(
                     onRegister = viewModel::register,
+                    onUsernameChange = viewModel::checkUsername,
                     onNavigateToLogin = viewModel::toggleMode,
                     isLoading = state.isLoading,
                     fieldErrors = state.fieldErrors,
-                    errorMessage = state.errorMessage
+                    errorMessage = state.errorMessage,
+                    usernameAvailability = state.usernameAvailability,
+                    isCheckingUsername = state.isCheckingUsername
                 )
             }
         }
@@ -69,9 +73,9 @@ fun AuthFlow(
         }
 
         // Email verification sheet
-        if (state.pendingVerificationEmail != null) {
+        state.pendingVerificationEmail?.let { verificationEmail ->
             EmailVerificationSheet(
-                email = state.pendingVerificationEmail,
+                email = verificationEmail,
                 code = state.verificationCode,
                 onCodeChange = viewModel::onVerificationCodeChange,
                 onVerify = viewModel::verifyEmail,

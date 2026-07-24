@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tab_map">Mapa</string><string name="tab_tasks">Tarefas</string><string name="tab_chat">Chat</string><string name="tab_profile">Perfil</string>
+    <string name="settings_title">Ajustes</string><string name="common_done">Concluído</string><string name="common_retry">Tentar novamente</string><string name="common_close">Fechar</string><string name="common_save">Salvar</string>
+    <string name="settings_theme_title">Aparência</string><string name="settings_theme_system">Sistema</string><string name="settings_theme_light">Claro</string><string name="settings_theme_dark">Escuro</string>
+    <string name="settings_language_title">Idioma e região</string><string name="settings_language_system">Idioma do sistema</string><string name="settings_weather_title">Clima</string><string name="settings_temperature_title">Temperatura</string><string name="settings_temperature_automatic">Automático</string>
+    <string name="settings_account_title">Conta</string><string name="settings_account_description">Sair encerrará a sessão apenas neste dispositivo.</string><string name="settings_sign_out">Sair</string>
+</resources>

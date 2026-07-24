@@ -2,12 +2,15 @@ package frezzy.gonow.features.tasks
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -19,22 +22,48 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import frezzy.gonow.features.map.ActivityMapViewModel
 import frezzy.gonow.models.ActivityCategory
 import frezzy.gonow.models.MapActivityResponse
+import frezzy.gonow.models.MapContentState
 import frezzy.gonow.ui.theme.*
+import frezzy.gonow.data.toMapActivityResponse
 import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
-fun TasksTab(mapViewModel: ActivityMapViewModel) {
+fun TasksTab(
+    mapViewModel: ActivityMapViewModel,
+    tasksViewModel: TasksViewModel,
+    onActivitySelected: (String) -> Unit
+) {
     var searchQuery by remember { mutableStateOf("") }
+    var section by remember { mutableStateOf(TaskSection.NEARBY) }
+    var selectedCategory by remember { mutableStateOf<ActivityCategory?>(null) }
+    var sortByDistance by remember { mutableStateOf(true) }
 
-    val items = remember(mapViewModel.activities, searchQuery) {
+    LaunchedEffect(Unit) { tasksViewModel.load() }
+
+    val source = when (section) {
+        TaskSection.NEARBY -> mapViewModel.activities
+        TaskSection.OWNED -> tasksViewModel.owned.map { it.toMapActivityResponse() }
+        TaskSection.PARTICIPATING -> tasksViewModel.participating.map { it.toMapActivityResponse() }
+    }
+    val items = remember(source, searchQuery, selectedCategory, sortByDistance) {
         val q = searchQuery.trim()
-        if (q.isEmpty()) mapViewModel.activities
-        else mapViewModel.activities.filter {
-            it.title.contains(q, ignoreCase = true) || it.parsedCategory.titleRu.contains(q, ignoreCase = true)
+        source.filter { activity ->
+            (selectedCategory == null || activity.parsedCategory == selectedCategory) &&
+                (q.isEmpty() ||
+                    activity.title.contains(q, ignoreCase = true) ||
+                    activity.parsedCategory.titleRu.contains(q, ignoreCase = true))
+        }.let { filtered ->
+            if (sortByDistance) filtered.sortedBy { it.distanceMeters ?: Double.MAX_VALUE }
+            else filtered.sortedBy { it.startsAt ?: "" }
         }
+    }
+    val contentError = when (section) {
+        TaskSection.NEARBY -> if (mapViewModel.state == MapContentState.Failed) "Не удалось загрузить активности рядом" else null
+        else -> tasksViewModel.error
     }
 
     AuthBackdrop {
@@ -51,12 +80,51 @@ fun TasksTab(mapViewModel: ActivityMapViewModel) {
             )
 
             Text(
-                text = "Поблизости",
+                text = section.title,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                TaskSection.entries.forEachIndexed { index, value ->
+                    SegmentedButton(
+                        selected = section == value,
+                        onClick = { section = value },
+                        shape = SegmentedButtonDefaults.itemShape(index, TaskSection.entries.size)
+                    ) { Text(value.shortTitle, fontSize = 12.sp) }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = selectedCategory == null,
+                    onClick = { selectedCategory = null },
+                    label = { Text("Все категории") }
+                )
+                ActivityCategory.entries.forEach { category ->
+                    FilterChip(
+                        selected = selectedCategory == category,
+                        onClick = { selectedCategory = category },
+                        label = { Text(category.titleRu) }
+                    )
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (sortByDistance) "Сначала ближайшие" else "Сначала ранние",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Switch(checked = sortByDistance, onCheckedChange = { sortByDistance = it })
+            }
 
             // Search
             OutlinedTextField(
@@ -85,7 +153,7 @@ fun TasksTab(mapViewModel: ActivityMapViewModel) {
 
             // Content
             when {
-                mapViewModel.state == MapContentState.Loading && items.isEmpty() -> {
+                (mapViewModel.state == MapContentState.Loading || tasksViewModel.loading) && items.isEmpty() -> {
                     Box(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         contentAlignment = Alignment.Center
@@ -94,6 +162,16 @@ fun TasksTab(mapViewModel: ActivityMapViewModel) {
                             CircularProgressIndicator()
                             Spacer(modifier = Modifier.height(12.dp))
                             Text("Загружаем...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                contentError != null && items.isEmpty() -> {
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(contentError, color = MaterialTheme.colorScheme.error)
+                            Button(onClick = {
+                                if (section == TaskSection.NEARBY) mapViewModel.reload() else tasksViewModel.load()
+                            }) { Text("Повторить") }
                         }
                     }
                 }
@@ -128,19 +206,22 @@ fun TasksTab(mapViewModel: ActivityMapViewModel) {
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(items, key = { it.id }) { activity ->
-                            ActivityListCard(activity = activity)
+                            ActivityListCard(activity = activity, onClick = { onActivitySelected(activity.id) })
                         }
                     }
                 }
+            }
+            if (contentError != null && items.isNotEmpty()) {
+                Text(contentError, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
             }
         }
     }
 }
 
 @Composable
-private fun ActivityListCard(activity: MapActivityResponse) {
+private fun ActivityListCard(activity: MapActivityResponse, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -219,6 +300,12 @@ private fun ActivityListCard(activity: MapActivityResponse) {
     }
 }
 
+private enum class TaskSection(val title: String, val shortTitle: String) {
+    NEARBY("Поблизости", "Рядом"),
+    OWNED("Организованные мной", "Мои"),
+    PARTICIPATING("Мои участия", "Участвую")
+}
+
 private fun formatTime(iso: String): String {
     return try {
         val input = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
@@ -245,7 +332,7 @@ private fun categoryColor(cat: ActivityCategory) = when (cat) {
 }
 
 private fun categoryListIcon(cat: ActivityCategory) = when (cat) {
-    ActivityCategory.WALKING -> Icons.Filled.DirectionsWalk
+    ActivityCategory.WALKING -> Icons.AutoMirrored.Filled.DirectionsWalk
     ActivityCategory.SPORT -> Icons.Filled.Sports
     ActivityCategory.TRAVEL -> Icons.Filled.Flight
     ActivityCategory.MUSIC -> Icons.Filled.MusicNote

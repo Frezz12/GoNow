@@ -21,9 +21,11 @@ data class ApiErrorBody(
     @SerialName("requestId") val requestId: String = ""
 )
 
-sealed class ApiError(message: String) : Exception(message) {
-    class Server(val error: ApiErrorBody) : ApiError(error.message)
+sealed class ApiError(message: String, cause: Throwable? = null) : Exception(message, cause) {
+    class Server(val error: ApiErrorBody, val statusCode: Int) : ApiError(error.message)
     class Unauthorized(message: String = "Unauthorized") : ApiError(message)
-    class Network(message: String = "Network error") : ApiError(message)
-    class Decoding(message: String = "Invalid response") : ApiError(message)
+    class Http(val statusCode: Int, message: String = "HTTP $statusCode", cause: Throwable? = null) :
+        ApiError(message, cause)
+    class Network(message: String = "Network error", cause: Throwable? = null) : ApiError(message, cause)
+    class Decoding(message: String = "Invalid response", cause: Throwable? = null) : ApiError(message, cause)
 }

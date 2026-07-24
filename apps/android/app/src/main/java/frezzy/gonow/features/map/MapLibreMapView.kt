@@ -21,6 +21,11 @@ import frezzy.gonow.models.ActivityCategory
 import frezzy.gonow.models.MapActivityResponse
 import frezzy.gonow.models.MapBounds
 import frezzy.gonow.models.MapCoordinate
+import frezzy.gonow.models.MapViewport
+import frezzy.gonow.models.PersistedMapCamera
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.PropertyFactory
@@ -60,22 +65,32 @@ fun MapLibreMapView(
     activities: List<MapActivityResponse>,
     userCoordinate: MapCoordinate?,
     selectedActivityId: String?,
+    initialCamera: PersistedMapCamera?,
     onViewportIdle: (MapViewport) -> Unit,
+    onCameraMove: (MapCoordinate) -> Unit = {},
     onActivityTap: (String) -> Unit,
-    onMapTap: () -> Unit
+    onMapTap: (MapCoordinate) -> Unit,
+    pickerMode: Boolean = false
 ) {
-    if (styleJson == null) {
-        Box(
-            modifier = modifier.background(androidx.compose.ui.graphics.Color(0xFFF6F2F5))
+    // MapLibre's native renderer currently crashes Android's x86 emulator.
+    // Keep the production renderer on devices and use the WebView map only there.
+    if (android.os.Build.SUPPORTED_ABIS.any { it.contains("x86") }) {
+        EmulatorRasterMapView(
+            modifier = modifier,
+            activities = activities,
+            userCoordinate = userCoordinate,
+            selectedActivityId = selectedActivityId,
+            initialCamera = initialCamera,
+            onViewportIdle = onViewportIdle,
+            onCameraMove = onCameraMove,
+            onActivityTap = onActivityTap,
+            onMapTap = onMapTap,
+            pickerMode = pickerMode
         )
         return
     }
 
-    val isEmulatorX86 = remember {
-        android.os.Build.SUPPORTED_ABIS.any { it.contains("x86") }
-    }
-    if (isEmulatorX86) {
-        Log.w("MapLibreMapView", "Skipping MapView on x86 emulator (GL crash risk)")
+    if (styleJson == null) {
         Box(
             modifier = modifier.background(androidx.compose.ui.graphics.Color(0xFFF6F2F5))
         )
@@ -111,6 +126,9 @@ fun MapLibreMapView(
         modifier = modifier,
         factory = { ctx ->
             MapView(ctx).apply {
+                onCreate(null)
+                if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) onStart()
+                if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) onResume()
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -119,6 +137,8 @@ fun MapLibreMapView(
         },
         onRelease = { mv ->
             try {
+                mv.onPause()
+                mv.onStop()
                 mv.onDestroy()
             } catch (e: Exception) {
                 Log.w("MapLibreMapView", "MapView destroy failed", e)
@@ -132,9 +152,12 @@ fun MapLibreMapView(
                 setupMap(
                     mapView = mv,
                     styleJson = styleJson,
+                    initialCamera = initialCamera,
                     onViewportIdle = onViewportIdle,
+                    onCameraMove = onCameraMove,
                     onActivityTap = onActivityTap,
-                    onMapTap = onMapTap
+                    onMapTap = onMapTap,
+                    pickerMode = pickerMode
                 )
             }
             if (isSetup) {
@@ -147,14 +170,30 @@ fun MapLibreMapView(
 private fun setupMap(
     mapView: MapView,
     styleJson: String,
+    initialCamera: PersistedMapCamera?,
     onViewportIdle: (MapViewport) -> Unit,
+    onCameraMove: (MapCoordinate) -> Unit,
     onActivityTap: (String) -> Unit,
-    onMapTap: () -> Unit
+    onMapTap: (MapCoordinate) -> Unit,
+    pickerMode: Boolean
 ) {
     mapView.getMapAsync { map ->
+        initialCamera?.let { camera ->
+            map.cameraPosition = CameraPosition.Builder()
+                .target(LatLng(camera.center.latitude, camera.center.longitude))
+                .zoom(camera.zoom)
+                .bearing(camera.bearing)
+                .tilt(camera.pitch)
+                .build()
+        }
         map.uiSettings.apply {
             isAttributionEnabled = false
             isLogoEnabled = false
+            // Keep navigation direct: pan with one finger, zoom only with pinch.
+            isScrollGesturesEnabled = true
+            isZoomGesturesEnabled = true
+            isDoubleTapGesturesEnabled = false
+            isQuickZoomGesturesEnabled = false
         }
         map.setStyle(styleJson) { style ->
             for ((category, color) in categoryColors) {
@@ -169,6 +208,12 @@ private fun setupMap(
                     PropertyFactory.circleRadius(27f),
                     PropertyFactory.circleBlur(0.45f),
                     PropertyFactory.circleOpacity(0.2f)
+                )
+                withFilter(
+                    org.maplibre.android.style.expressions.Expression.eq(
+                        org.maplibre.android.style.expressions.Expression.get("is_selected"),
+                        org.maplibre.android.style.expressions.Expression.literal(true)
+                    )
                 )
             })
             style.addLayer(SymbolLayer(MapLayerIds.ACTIVITIES_MARKERS, MapLayerIds.ACTIVITIES_SOURCE).apply {
@@ -219,6 +264,14 @@ private fun setupMap(
             )
         }
 
+        if (pickerMode) {
+            map.addOnCameraMoveListener {
+                map.cameraPosition.target?.let { target ->
+                    onCameraMove(MapCoordinate(target.latitude, target.longitude))
+                }
+            }
+        }
+
         map.addOnMapClickListener { latLng ->
             val screenPoint = map.projection?.toScreenLocation(latLng) ?: return@addOnMapClickListener true
             val features = map.queryRenderedFeatures(
@@ -231,7 +284,8 @@ private fun setupMap(
                     onActivityTap(activityId)
                 }
             } else {
-                onMapTap()
+                if (pickerMode) map.animateCamera(CameraUpdateFactory.newLatLng(latLng))
+                onMapTap(MapCoordinate(latLng.latitude, latLng.longitude))
             }
             true
         }
@@ -298,7 +352,14 @@ private fun createPinDrawable(color: Int, size: Float): Drawable {
         close()
     }
     canvas.drawPath(path, paint)
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = maxOf(2f, width * 0.06f)
     paint.color = Color.WHITE
-    canvas.drawCircle(width / 2f, height * 0.31f, width * 0.13f, paint)
-    return BitmapDrawable(null, bitmap).also { it.bitmap = bitmap }
+    canvas.drawPath(path, paint)
+    paint.style = Paint.Style.FILL
+    paint.color = Color.WHITE
+    canvas.drawCircle(width / 2f, height * 0.31f, width * 0.15f, paint)
+    paint.color = color
+    canvas.drawCircle(width / 2f, height * 0.31f, width * 0.06f, paint)
+    return BitmapDrawable(null, bitmap)
 }

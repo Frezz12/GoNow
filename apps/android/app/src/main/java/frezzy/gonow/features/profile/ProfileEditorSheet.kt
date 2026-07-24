@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import frezzy.gonow.models.UpdateProfileRequest
 import frezzy.gonow.models.User
+import frezzy.gonow.models.UsernameRules
 import frezzy.gonow.ui.theme.*
 import java.io.ByteArrayOutputStream
 import java.time.Instant
@@ -51,10 +52,14 @@ fun ProfileEditorSheet(
 ) {
     val context = LocalContext.current
     var displayName by remember { mutableStateOf(user.displayName) }
+    var username by remember { mutableStateOf(user.username) }
     var city by remember { mutableStateOf(user.city ?: "") }
     var occupation by remember { mutableStateOf(user.occupation ?: "") }
     var bio by remember { mutableStateOf(user.bio ?: "") }
     var interests by remember { mutableStateOf(user.interests?.joinToString(", ") ?: "") }
+    var languages by remember { mutableStateOf(user.languages?.joinToString(", ") ?: "") }
+    var availability by remember { mutableStateOf(user.availability ?: "") }
+    var preferredGroupSize by remember { mutableStateOf(user.preferredGroupSize ?: "") }
     var relationshipStatus by remember { mutableStateOf(user.relationshipStatus ?: "") }
     var locationLabel by remember { mutableStateOf(user.locationLabel ?: "") }
     var showDistance by remember { mutableStateOf(user.showDistance ?: true) }
@@ -63,6 +68,7 @@ fun ProfileEditorSheet(
     var birthDate by remember { mutableStateOf(user.birthDate ?: "") }
     var showDatePicker by remember { mutableStateOf(false) }
     var localError by remember { mutableStateOf(errorMessage) }
+    var avatarToCrop by remember { mutableStateOf<ByteArray?>(null) }
 
     val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     val displayFormatter = DateTimeFormatter.ofPattern("d MMMM yyyy")
@@ -70,7 +76,7 @@ fun ProfileEditorSheet(
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         uri?.let {
             val bytes = context.contentResolver.openInputStream(it)?.use { s -> compressEditorBitmap(BitmapFactory.decodeStream(s), 1600) }
-            if (bytes != null) onUploadAvatar(bytes)
+            if (bytes != null) avatarToCrop = bytes
         }
     }
 
@@ -96,16 +102,22 @@ fun ProfileEditorSheet(
                 TextButton(
                     onClick = {
                         if (displayName.trim().length < 2) { localError = "Введите имя не короче двух символов"; return@TextButton }
+                        UsernameRules.validationMessage(username)?.let { localError = it; return@TextButton }
                         if (birthDate.isBlank()) { localError = "Укажите дату рождения"; return@TextButton }
                         val parsedInterests = interests.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                        val parsedLanguages = languages.split(",").map { it.trim() }.filter { it.isNotBlank() }
                         onSave(
                             UpdateProfileRequest(
                                 displayName = displayName.trim(),
+                                username = UsernameRules.normalize(username),
                                 birthDate = birthDate.trim().ifBlank { null },
                                 city = city.trim().ifBlank { null },
                                 occupation = occupation.trim().ifBlank { null },
                                 bio = bio.trim().ifBlank { null },
                                 interests = parsedInterests,
+                                languages = parsedLanguages,
+                                availability = availability.trim().ifBlank { null },
+                                preferredGroupSize = preferredGroupSize.trim().ifBlank { null },
                                 relationshipStatus = relationshipStatus.trim().ifBlank { null },
                                 locationLabel = locationLabel.trim().ifBlank { null },
                                 latitude = latitude,
@@ -167,6 +179,8 @@ fun ProfileEditorSheet(
             Spacer(Modifier.height(24.dp))
 
             ProfileField(label = "Имя", value = displayName, onValueChange = { displayName = it })
+            Spacer(Modifier.height(12.dp))
+            ProfileField(label = "Username", value = username, onValueChange = { username = it.lowercase() })
             Spacer(Modifier.height(16.dp))
 
             ProfileField(label = "Город", value = city, onValueChange = { city = it })
@@ -262,6 +276,12 @@ fun ProfileEditorSheet(
 
             // ─── Interests ───
             ProfileField(label = "Интересы", value = interests, onValueChange = { interests = it })
+            Spacer(Modifier.height(12.dp))
+            ProfileField(label = "Языки через запятую", value = languages, onValueChange = { languages = it })
+            Spacer(Modifier.height(12.dp))
+            ProfileField(label = "Когда вы доступны", value = availability, onValueChange = { availability = it })
+            Spacer(Modifier.height(12.dp))
+            ProfileField(label = "Предпочитаемый размер компании", value = preferredGroupSize, onValueChange = { preferredGroupSize = it })
             Spacer(Modifier.height(4.dp))
             Text(
                 "Через запятую: прогулки, кино, йога",
@@ -347,6 +367,17 @@ fun ProfileEditorSheet(
 
             DatePicker(state = datePickerState)
         }
+    }
+
+    avatarToCrop?.let { source ->
+        AvatarCropDialog(
+            imageBytes = source,
+            onDismiss = { avatarToCrop = null },
+            onCropped = {
+                avatarToCrop = null
+                onUploadAvatar(it)
+            }
+        )
     }
 }
 

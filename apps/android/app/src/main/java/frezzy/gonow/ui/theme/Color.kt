@@ -24,7 +24,8 @@ val Border = Color(0xFFCFC4F2)
 
 // Button gradient
 val ButtonStart = Color(0xFF7C5CFC)
-val ButtonEnd = Color(0xFFB05CF5)
+val ButtonMid = Color(0xFFB05CF5)
+val ButtonEnd = Color(0xFFF472B6)
 
 // Screen backdrop gradient
 val BackdropTop = Color(0xFFFFDEE8)

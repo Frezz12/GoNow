@@ -6,12 +6,20 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import frezzy.gonow.data.ActivityRepository
+import frezzy.gonow.data.toMapActivityResponse
+import frezzy.gonow.data.MapCameraStore
 import frezzy.gonow.models.*
+import frezzy.gonow.core.throwIfCancellation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class ActivityMapViewModel(private val repository: ActivityRepository) : ViewModel() {
+class ActivityMapViewModel(
+    private val repository: ActivityRepository,
+    private val cameraStore: MapCameraStore
+) : ViewModel() {
+
+    val initialCamera: PersistedMapCamera? = cameraStore.load()
 
     var activities by mutableStateOf<List<MapActivityResponse>>(emptyList())
         private set
@@ -40,8 +48,15 @@ class ActivityMapViewModel(private val repository: ActivityRepository) : ViewMod
     var mapStyleJson by mutableStateOf<String?>(null)
         private set
 
+    var mapStyleLoading by mutableStateOf(true)
+        private set
+
+    var mapStyleError by mutableStateOf<String?>(null)
+        private set
+
     private var loadedBounds: MapBounds? = null
     private var lastViewport: MapViewport? = null
+    private var locallyCreatedActivities = emptyMap<String, MapActivityResponse>()
     private var loadJob: Job? = null
     private var requestGeneration = 0
 
@@ -71,8 +86,29 @@ class ActivityMapViewModel(private val repository: ActivityRepository) : ViewMod
         selectedActivity = visibleActivities.firstOrNull { it.id == id }
     }
 
+    fun selectExternalActivity(id: String) {
+        selectedActivity = activities.firstOrNull { it.id == id }
+            ?: MapActivityResponse(
+                id = id,
+                title = "Активность",
+                category = ActivityCategory.OTHER.apiValue,
+                coordinate = MapCoordinate(0.0, 0.0)
+            )
+    }
+
     fun clearSelection() {
         selectedActivity = null
+    }
+
+    fun showCreatedActivity(activity: GoNowActivity, coordinate: MapCoordinate? = null) {
+        val created = activity.toMapActivityResponse().let { mapped ->
+            coordinate?.takeIf(MapCoordinate::isValid)?.let { mapped.copy(coordinate = it) } ?: mapped
+        }
+        locallyCreatedActivities = locallyCreatedActivities + (created.id to created)
+        activities = (listOf(created) + activities.filter { it.id != created.id })
+        rebuildVisibleActivities()
+        selectedActivity = created
+        state = MapContentState.Loaded
     }
 
     fun updateSearchQuery(query: String) {
@@ -91,7 +127,7 @@ class ActivityMapViewModel(private val repository: ActivityRepository) : ViewMod
         creationError = null
         viewModelScope.launch {
             try {
-                val created = repository.createActivity(
+                val createdActivity = repository.createActivity(
                     CreateActivityRequest(
                         title = cleanTitle,
                         category = category.apiValue,
@@ -99,11 +135,13 @@ class ActivityMapViewModel(private val repository: ActivityRepository) : ViewMod
                         longitude = coordinate.longitude
                     )
                 )
+                val created = createdActivity.toMapActivityResponse()
                 activities = listOf(created) + activities.filter { it.id != created.id }
                 selectedActivity = created
                 state = MapContentState.Loaded
                 loadedBounds = null
             } catch (e: Exception) {
+                e.throwIfCancellation()
                 creationError = e.message
             } finally {
                 isCreating = false
@@ -115,9 +153,23 @@ class ActivityMapViewModel(private val repository: ActivityRepository) : ViewMod
         creationError = null
     }
 
+    fun reloadMapStyle() = loadMapStyle()
+
     private fun loadMapStyle() {
+        mapStyleLoading = true
+        mapStyleError = null
         viewModelScope.launch {
-            mapStyleJson = repository.getMapStyleJson()
+            try {
+            val style = repository.getMapStyleJson()
+            mapStyleJson = style
+            mapStyleLoading = false
+            if (style == null) mapStyleError = "Не удалось загрузить карту"
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                mapStyleError = error.message ?: "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043a\u0430\u0440\u0442\u0443"
+            } finally {
+                mapStyleLoading = false
+            }
         }
     }
 
@@ -137,10 +189,16 @@ class ActivityMapViewModel(private val repository: ActivityRepository) : ViewMod
                     bounds = viewport.bounds,
                     zoom = viewport.zoom,
                     categories = currentFilters.categories.takeIf { it.isNotEmpty() },
-                    onlyAvailable = currentFilters.onlyAvailable
+                    onlyAvailable = currentFilters.onlyAvailable,
+                    startsFrom = currentFilters.startsWithinHours?.let { java.time.Instant.now().toString() },
+                    startsTo = currentFilters.startsWithinHours?.let { java.time.Instant.now().plusSeconds(it * 3_600L).toString() }
                 )
                 if (generation != requestGeneration) return@launch
-                activities = page.activities
+                val serverIds = page.activities.mapTo(mutableSetOf()) { it.id }
+                locallyCreatedActivities = locallyCreatedActivities.filterKeys { it !in serverIds }
+                val localInViewport = locallyCreatedActivities.values.filter { viewport.bounds.contains(it.coordinate) }
+                activities = (localInViewport + page.activities).distinctBy { it.id }
+                rebuildVisibleActivities()
                 selectedActivity?.let { sel ->
                     selectedActivity = visibleActivities.firstOrNull { it.id == sel.id }
                 }
@@ -148,7 +206,8 @@ class ActivityMapViewModel(private val repository: ActivityRepository) : ViewMod
                     MapBounds(it.south, it.west, it.north, it.east)
                 }
                 state = if (page.activities.isEmpty()) MapContentState.Empty else MapContentState.Loaded
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                error.throwIfCancellation()
                 if (generation == requestGeneration) {
                     state = MapContentState.Failed
                 }
@@ -169,10 +228,17 @@ class ActivityMapViewModel(private val repository: ActivityRepository) : ViewMod
     }
 
     private fun saveCameraState(viewport: MapViewport) {
-        // Persist to SharedPreferences in a real app; for now just in-memory
+        cameraStore.save(viewport)
     }
 }
 
 internal fun MapBounds.covers(other: MapBounds): Boolean {
-    return other.south >= south && other.north <= north && other.west >= west && other.east <= east
+    if (other.south < south || other.north > north) return false
+    fun containsLongitude(longitude: Double): Boolean = if (crossesAntimeridian) {
+        longitude >= west || longitude <= east
+    } else {
+        longitude in west..east
+    }
+    return containsLongitude(other.west) && containsLongitude(other.east) &&
+        (!other.crossesAntimeridian || crossesAntimeridian)
 }

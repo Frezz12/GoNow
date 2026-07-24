@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,12 +25,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,6 +44,7 @@ import frezzy.gonow.models.ProfilePhoto
 import frezzy.gonow.models.User
 import frezzy.gonow.ui.theme.*
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -47,25 +52,31 @@ fun ProfileTab(
     user: User?,
     avatarBytes: ByteArray?,
     profilePhotos: List<ProfilePhoto>,
-    photoContentMap: Map<String, ByteArray>,
+    avatarHistory: List<ProfilePhoto>,
+    photoContentFiles: Map<String, String>,
+    unavailablePhotoIds: Set<String>,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
     onEditProfile: () -> Unit,
+    onOpenSocial: () -> Unit,
     onSettings: () -> Unit,
     onUploadAvatar: (ByteArray) -> Unit,
     onUploadPhoto: (ByteArray) -> Unit,
     onDeletePhoto: (String) -> Unit,
+    onUpdatePhotoDescription: (String, String?) -> Unit,
+    onTogglePhotoLike: (String) -> Unit,
     onLoadPhotoContent: (String) -> Unit,
     isLoading: Boolean
 ) {
     val context = LocalContext.current
-    val cardShape = RoundedCornerShape(20.dp)
+    val horizontalPadding = if (LocalConfiguration.current.screenWidthDp >= 600) 32.dp else 16.dp
     val maxPhotos = 12
+    var avatarToCrop by remember { mutableStateOf<ByteArray?>(null) }
 
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
         uri?.let {
             val bytes = context.contentResolver.openInputStream(it)?.use { s -> compressBitmap(BitmapFactory.decodeStream(s), 1600) }
-            if (bytes != null) onUploadAvatar(bytes)
+            if (bytes != null) avatarToCrop = bytes
         }
     }
 
@@ -78,6 +89,11 @@ fun ProfileTab(
 
     var expandedGallery by remember { mutableStateOf(false) }
     var viewingPhoto by remember { mutableStateOf<String?>(null) }
+    var profileInfoExpanded by rememberSaveable { mutableStateOf(false) }
+    var profileActionsExpanded by remember { mutableStateOf(false) }
+    val allViewablePhotos = remember(profilePhotos, avatarHistory) {
+        (avatarHistory + profilePhotos).distinctBy { it.id }
+    }
 
     if (user == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -90,11 +106,38 @@ fun ProfileTab(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = 8.dp),
                 horizontalArrangement = Arrangement.End
             ) {
-                IconButton(onClick = onSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Настройки", tint = MaterialTheme.colorScheme.onBackground)
+                Box {
+                    Surface(
+                        onClick = { profileActionsExpanded = true },
+                        modifier = Modifier.size(48.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                        shadowElevation = 2.dp
+                    ) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Меню профиля", tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(12.dp))
+                    }
+                    DropdownMenu(
+                        expanded = profileActionsExpanded,
+                        onDismissRequest = { profileActionsExpanded = false },
+                        shape = RoundedCornerShape(20.dp),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 4.dp
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Редактировать профиль") },
+                            leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                            onClick = { profileActionsExpanded = false; onEditProfile() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Настройки") },
+                            leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                            onClick = { profileActionsExpanded = false; onSettings() }
+                        )
+                    }
                 }
             }
         }
@@ -104,7 +147,7 @@ fun ProfileTab(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = horizontalPadding)
         ) {
             // ─── Avatar + Name ───
             Row(
@@ -112,11 +155,11 @@ fun ProfileTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box {
-                    ProfileAvatar(avatarBytes = avatarBytes, initials = user.initials, size = 80)
+                    ProfileAvatar(avatarBytes = avatarBytes, initials = user.initials, size = 96)
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .size(32.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary)
                             .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
@@ -129,39 +172,88 @@ fun ProfileTab(
 
                 Spacer(Modifier.width(14.dp))
 
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(
                         user.displayName,
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
-                    user.birthDateDisplay?.let { text ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Filled.CalendarToday, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
-                            Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("@${user.username.ifBlank { user.id.take(8) }}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            Spacer(Modifier.height(22.dp))
+
+            GlassCard(modifier = Modifier.fillMaxWidth().clickable { profileInfoExpanded = !profileInfoExpanded }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Badge, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(30.dp))
+                    Text(
+                        if (profileInfoExpanded) "Скрыть информацию" else "Информация о себе",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 16.dp).weight(1f)
+                    )
+                    Icon(
+                        if (profileInfoExpanded) Icons.Filled.ExpandLess else Icons.Filled.ChevronRight,
+                        contentDescription = if (profileInfoExpanded) "Скрыть информацию" else "Показать информацию",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                AnimatedVisibility(profileInfoExpanded) {
+                    Column(
+                        modifier = Modifier.padding(top = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        user.birthDateDisplay?.let { ProfileInfoFact(Icons.Filled.Cake, it) }
+                        (user.city ?: user.locationLabel)?.takeIf { it.isNotBlank() }?.let {
+                            ProfileInfoFact(Icons.Filled.LocationOn, it)
                         }
-                    }
-                    val locationText = user.city?.takeIf { it.isNotBlank() }
-                    if (locationText != null) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Filled.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
-                            Text(locationText ?: "", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        if (!user.bio.isNullOrBlank()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("О себе", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                Text(user.bio, style = MaterialTheme.typography.bodyLarge, lineHeight = 22.sp)
+                            }
+                        }
+                        if (!user.interests.isNullOrEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Интересы", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    user.interests.forEach { interest ->
+                                        Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)) {
+                                            Text(interest, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (user.birthDate == null && user.city.isNullOrBlank() && user.bio.isNullOrBlank() && user.interests.isNullOrEmpty()) {
+                            Text("Добавьте информацию о себе, чтобы людям было проще вас узнать.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
             }
-
+            Spacer(Modifier.height(14.dp))
+            GlassCard(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSocial)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
+                        Icon(Icons.Filled.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(10.dp).size(26.dp))
+                    }
+                    Column(modifier = Modifier.padding(start = 14.dp).weight(1f)) {
+                        Text("\u0414\u0440\u0443\u0437\u044c\u044f \u0438 \u043f\u0440\u0438\u0433\u043b\u0430\u0448\u0435\u043d\u0438\u044f", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text("\u041d\u0430\u0439\u0434\u0438\u0442\u0435 \u043b\u044e\u0434\u0435\u0439, \u043e\u0442\u0432\u0435\u0442\u044c\u0442\u0435 \u043d\u0430 \u0437\u0430\u044f\u0432\u043a\u0438 \u0438\u043b\u0438 \u043f\u043e\u0437\u043e\u0432\u0438\u0442\u0435 \u0432\u0441\u0442\u0440\u0435\u0442\u0438\u0442\u044c\u0441\u044f", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             Spacer(Modifier.height(24.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.GridView, contentDescription = null, modifier = Modifier.size(28.dp))
+                Text("\u041f\u043e\u0441\u0442\u044b", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 12.dp))
+            }
+            Spacer(Modifier.height(12.dp))
 
-            // ─── Single info card: Photos + Bio + Interests ───
-            Card(shape = cardShape, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
                     // Photos section
                     Column {
@@ -170,11 +262,18 @@ fun ProfileTab(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Фотографии", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Фотографии", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Каждое фото — пост с описанием и лайками",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                             if (profilePhotos.isNotEmpty()) {
                                 TextButton(onClick = { expandedGallery = !expandedGallery }) {
                                     Text(
-                                        text = if (expandedGallery) "Свернуть" else "Показать все (${profilePhotos.size})",
+                                        text = if (expandedGallery) "Свернуть" else "Все (${profilePhotos.size})",
                                         color = MaterialTheme.colorScheme.primary,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Medium
@@ -193,14 +292,17 @@ fun ProfileTab(
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 items(profilePhotos) { photo ->
-                                    val contentBytes = photoContentMap[photo.id]
-                                    if (contentBytes == null) {
+                                    val contentFile = photoContentFiles[photo.id]
+                                    if (contentFile == null) {
                                         LaunchedEffect(photo.id) { onLoadPhotoContent(photo.id) }
                                     }
                                     PhotoThumbnail(
-                                        bytes = contentBytes,
-                                        onClick = { viewingPhoto = photo.id },
-                                        onDelete = { onDeletePhoto(photo.id) }
+                                        file = contentFile?.let(::File),
+                                        unavailable = photo.id in unavailablePhotoIds,
+                                        onClick = {
+                                            if (photo.id in unavailablePhotoIds) onLoadPhotoContent(photo.id)
+                                            else viewingPhoto = photo.id
+                                        },
                                     )
                                 }
                                 if (profilePhotos.size < maxPhotos) {
@@ -213,14 +315,17 @@ fun ProfileTab(
                             // Horizontal scroll (like iOS)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 itemsIndexed(profilePhotos) { index, photo ->
-                                    val contentBytes = photoContentMap[photo.id]
-                                    if (contentBytes == null) {
+                                    val contentFile = photoContentFiles[photo.id]
+                                    if (contentFile == null) {
                                         LaunchedEffect(photo.id) { onLoadPhotoContent(photo.id) }
                                     }
                                     PhotoThumbnail(
-                                        bytes = contentBytes,
-                                        onClick = { viewingPhoto = photo.id },
-                                        onDelete = { onDeletePhoto(photo.id) }
+                                        file = contentFile?.let(::File),
+                                        unavailable = photo.id in unavailablePhotoIds,
+                                        onClick = {
+                                            if (photo.id in unavailablePhotoIds) onLoadPhotoContent(photo.id)
+                                            else viewingPhoto = photo.id
+                                        },
                                     )
                                 }
                                 if (profilePhotos.size < maxPhotos) {
@@ -232,35 +337,6 @@ fun ProfileTab(
                         }
                     }
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                    // Bio
-                    if (!user.bio.isNullOrBlank()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                Text("О себе", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text(user.bio, style = MaterialTheme.typography.bodyMedium, lineHeight = 22.sp, modifier = Modifier.padding(start = 28.dp))
-                        }
-                    }
-
-                    // Interests
-                    if (!user.interests.isNullOrEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Filled.Tag, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                Text("Интересы", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(start = 28.dp)) {
-                                user.interests.forEach { interest ->
-                                    Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)) {
-                                        Text(interest, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
@@ -279,9 +355,10 @@ fun ProfileTab(
     // ─── Full-screen photo viewer ───
     if (viewingPhoto != null) {
         val photoId = viewingPhoto!!
-        val contentBytes = photoContentMap[photoId]
-        val photo = profilePhotos.find { it.id == photoId }
+        val contentFile = photoContentFiles[photoId]?.let(::File)
+        val photo = allViewablePhotos.find { it.id == photoId }
         var showDeleteConfirm by remember { mutableStateOf(false) }
+        var descriptionDraft by remember(photoId, photo?.description) { mutableStateOf(photo?.description.orEmpty()) }
 
         Dialog(
             onDismissRequest = { viewingPhoto = null }
@@ -293,8 +370,8 @@ fun ProfileTab(
                     .clickable { viewingPhoto = null }
             ) {
                 // Photo
-                if (contentBytes != null) {
-                    val bitmap = remember(contentBytes) { BitmapFactory.decodeByteArray(contentBytes, 0, contentBytes.size) }
+                if (contentFile != null) {
+                    val bitmap = remember(contentFile) { BitmapFactory.decodeFile(contentFile.absolutePath) }
                     if (bitmap != null) {
                         Image(
                             bitmap = bitmap.asImageBitmap(),
@@ -328,6 +405,42 @@ fun ProfileTab(
                         }
                     }
                 }
+
+                if (photo != null) {
+                    Card(
+                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp).clickable(enabled = false) {},
+                        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.72f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = descriptionDraft,
+                                onValueChange = { descriptionDraft = it.take(500) },
+                                label = { Text("Описание") },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = Color.White,
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.6f)
+                                )
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { onTogglePhotoLike(photo.id) }) {
+                                    Icon(
+                                        if (photo.isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                        contentDescription = null,
+                                        tint = Color.White
+                                    )
+                                    Text("${photo.likeCount}", color = Color.White)
+                                }
+                                Spacer(Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    onUpdatePhotoDescription(photo.id, descriptionDraft.trim().ifBlank { null })
+                                }) { Text("Сохранить", color = Color.White) }
+                            }
+                        }
+                    }
+                }
             }
 
             if (showDeleteConfirm) {
@@ -346,6 +459,25 @@ fun ProfileTab(
                 )
             }
         }
+    }
+
+    avatarToCrop?.let { source ->
+        AvatarCropDialog(
+            imageBytes = source,
+            onDismiss = { avatarToCrop = null },
+            onCropped = {
+                avatarToCrop = null
+                onUploadAvatar(it)
+            }
+        )
+    }
+}
+
+@Composable
+private fun ProfileInfoFact(icon: ImageVector, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+        Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -385,13 +517,11 @@ fun ProfileAvatar(avatarBytes: ByteArray?, initials: String, size: Int, modifier
 }
 
 @Composable
-private fun PhotoThumbnail(bytes: ByteArray?, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun PhotoThumbnail(file: File?, unavailable: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(20.dp)
-    var showDeleteConfirm by remember { mutableStateOf(false) }
-
     Box {
-        if (bytes != null && bytes.isNotEmpty()) {
-            val bitmap = remember(bytes) { try { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) } catch (_: Exception) { null } }
+        if (file?.isFile == true) {
+            val bitmap = remember(file) { try { BitmapFactory.decodeFile(file.absolutePath) } catch (_: Exception) { null } }
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap.asImageBitmap(),
@@ -410,6 +540,17 @@ private fun PhotoThumbnail(bytes: ByteArray?, onClick: () -> Unit, onDelete: () 
                     Icon(Icons.Filled.BrokenImage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
                 }
             }
+        } else if (unavailable) {
+            Box(
+                modifier = Modifier
+                    .size(width = 88.dp, height = 112.dp)
+                    .clip(shape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(onClick = onClick),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.CloudOff, contentDescription = "Повторить загрузку фото", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(24.dp))
+            }
         } else {
             Box(
                 modifier = Modifier.size(width = 88.dp, height = 112.dp).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant),
@@ -419,19 +560,6 @@ private fun PhotoThumbnail(bytes: ByteArray?, onClick: () -> Unit, onDelete: () 
             }
         }
 
-        IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.align(Alignment.TopEnd).size(24.dp).padding(2.dp)) {
-            Icon(Icons.Filled.Close, contentDescription = "Удалить", tint = Color.White, modifier = Modifier.size(14.dp))
-        }
-    }
-
-    if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Удалить фотографию?") },
-            text = { Text("Это действие нельзя отменить.") },
-            confirmButton = { TextButton(onClick = { showDeleteConfirm = false; onDelete() }) { Text("Удалить", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Отмена") } }
-        )
     }
 }
 

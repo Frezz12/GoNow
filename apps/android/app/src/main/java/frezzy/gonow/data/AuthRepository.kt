@@ -2,26 +2,33 @@ package frezzy.gonow.data
 
 import frezzy.gonow.models.*
 import frezzy.gonow.network.ApiClient
+import kotlinx.serialization.decodeFromString
 
 class AuthRepository(
     private val apiClient: ApiClient,
-    private val tokenStore: TokenStore,
+    private val tokenStore: SessionStore,
     private val deviceIdentity: DeviceIdentity
 ) {
 
-    suspend fun register(name: String, email: String, password: String): RegistrationData {
+    suspend fun register(name: String, username: String, email: String, password: String): RegistrationData {
         val response = apiClient.publicRequest {
             apiClient.api.register(
                 RegisterRequest(
                     email = email.trim().lowercase(),
                     password = password,
                     displayName = name.trim(),
+                    username = UsernameRules.normalize(username),
                     device = deviceIdentity.getDevicePayload()
                 )
             )
         }
         return response.data
     }
+
+    suspend fun usernameAvailability(username: String): UsernameAvailability =
+        apiClient.publicRequest {
+            apiClient.api.usernameAvailability(UsernameRules.normalize(username)).data
+        }
 
     suspend fun verifyEmail(email: String, code: String): User {
         val response = apiClient.publicRequest {
@@ -73,11 +80,11 @@ class AuthRepository(
     }
 
     suspend fun restoreSession(): User? {
-        val refreshToken = tokenStore.getRefreshToken() ?: return null
+        tokenStore.getRefreshToken() ?: return null
         return try {
             val response = apiClient.authenticatedRequest { apiClient.api.getCurrentUser() }
             response.data
-        } catch (e: ApiError) {
+        } catch (error: ApiError.Unauthorized) {
             tokenStore.clearTokens()
             null
         }
@@ -114,11 +121,15 @@ class AuthRepository(
 
     suspend fun getPhotoContent(photoId: String): ByteArray {
         return apiClient.authenticatedRequest {
-            val response = apiClient.api.getPhotoContent(photoId)
+            val response = apiClient.api.getContent("users/me/photos/$photoId/content")
             if (response.isSuccessful) {
                 response.body()?.bytes() ?: ByteArray(0)
             } else {
-                throw ApiError.Network("Failed to load photo")
+                val serverError = response.errorBody()?.string()?.let { body ->
+                    runCatching { apiClient.json.decodeFromString<ApiErrorEnvelope>(body).error }.getOrNull()
+                }
+                if (serverError != null) throw ApiError.Server(serverError, response.code())
+                throw ApiError.Http(response.code())
             }
         }
     }
@@ -126,6 +137,17 @@ class AuthRepository(
     suspend fun deletePhoto(photoId: String) {
         apiClient.authenticatedRequest { apiClient.api.deletePhoto(photoId) }
     }
+
+    suspend fun updatePhotoDescription(photoId: String, description: String?): ProfilePhoto =
+        apiClient.authenticatedRequest {
+            apiClient.api.updatePhoto(photoId, UpdatePhotoRequest(description?.trim()?.ifBlank { null })).data
+        }
+
+    suspend fun setPhotoLiked(photoId: String, liked: Boolean): PhotoEngagement =
+        apiClient.authenticatedRequest {
+            if (liked) apiClient.api.likeOwnPhoto(photoId).data
+            else apiClient.api.unlikeOwnPhoto(photoId).data
+        }
 
     suspend fun logout() {
         val refreshToken = tokenStore.getRefreshToken()

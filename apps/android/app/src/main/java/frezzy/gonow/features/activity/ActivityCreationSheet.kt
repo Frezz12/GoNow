@@ -27,143 +27,98 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import frezzy.gonow.core.cancellableRunCatching
 import frezzy.gonow.models.ActivityCategory
-import frezzy.gonow.models.MapActivityResponse
+import frezzy.gonow.models.ActivityDraft
+import frezzy.gonow.models.ActivityDraftPhoto
+import frezzy.gonow.models.WizardStep
 import frezzy.gonow.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActivityCreationSheet(
     viewModel: ActivityCreationViewModel,
     locationProvider: frezzy.gonow.core.location.DeviceLocationProvider,
+    mapStyleJson: String?,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
+    Dialog(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = Background,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Новая активность",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "Закрыть")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            WizardProgressBar(
-                step = viewModel.currentStep,
-                onSelect = { newStep ->
-                    if (newStep.index < viewModel.step) {
-                        viewModel.moveBack()
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            AuthBackdrop {
+                Column(
+                    modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = onDismiss, modifier = Modifier.height(48.dp)) { Text("Закрыть") }
+                        Text(
+                            text = "Новая активность",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.width(72.dp))
                     }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            when (viewModel.currentStep) {
-                WizardStep.BASICS -> BasicsStep(
-                    draft = viewModel.draft,
-                    onTitleChange = viewModel::updateTitle,
-                    onDescriptionChange = viewModel::updateDescription,
-                    onCategoryChange = viewModel::updateCategory
-                )
-                WizardStep.PHOTOS -> PhotosStep(
-                    draft = viewModel.draft,
-                    onAddPhoto = viewModel::addPhoto,
-                    onRemovePhoto = viewModel::removePhoto,
-                    onMakeCover = viewModel::makeCover,
-                    onMovePhoto = viewModel::movePhoto
-                )
-                WizardStep.LOCATION -> LocationStep(
-                    draft = viewModel.draft,
-                    locationProvider = locationProvider,
-                    onLocationSet = { lat, lon ->
-                        viewModel.draft = viewModel.draft.copy(latitude = lat, longitude = lon)
-                    },
-                    onVisibilityChange = viewModel::updateLocationVisibility
-                )
-                WizardStep.SCHEDULE -> ScheduleStep(
-                    draft = viewModel.draft,
-                    onStartsAtChange = viewModel::updateStartsAt,
-                    onDurationPresetChange = viewModel::updateDurationPreset,
-                    onCustomDurationChange = viewModel::updateCustomDuration,
-                    onShowTimingChange = viewModel::updateShowTiming,
-                    onHideTimingChange = viewModel::updateHideTiming
-                )
-                WizardStep.PARTICIPANTS -> ParticipantsStep(
-                    draft = viewModel.draft,
-                    onParticipantLimitChange = viewModel::updateParticipantLimit,
-                    onJoinPolicyChange = viewModel::updateJoinPolicy,
-                    onAgeMinChange = viewModel::updateAgeMin,
-                    onSkillLevelChange = viewModel::updateSkillLevel,
-                    onCostTypeChange = viewModel::updateCostType,
-                    onCostAmountChange = viewModel::updateCostAmount,
-                    onAddLanguage = viewModel::addLanguage,
-                    onRemoveLanguage = viewModel::removeLanguage,
-                    onAddBringItem = viewModel::addBringItem,
-                    onRemoveBringItem = viewModel::removeBringItem,
-                    onAddRule = viewModel::addRule,
-                    onRemoveRule = viewModel::removeRule
-                )
-                WizardStep.PREVIEW -> PreviewStep(draft = viewModel.draft)
-            }
-
-            viewModel.errorMessage?.let { error ->
-                Spacer(modifier = Modifier.height(12.dp))
-                ErrorMessage(text = error)
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (viewModel.step > 0) {
-                    GlassSecondaryButton(
-                        text = "Назад",
-                        onClick = viewModel::moveBack,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                if (viewModel.isLastStep) {
-                    GradientPrimaryButton(
-                        text = if (viewModel.isSubmitting) "Публикуем..." else "Опубликовать",
-                        onClick = { viewModel.submit() },
-                        enabled = !viewModel.isSubmitting,
-                        loading = viewModel.isSubmitting,
-                        modifier = Modifier.weight(1f)
-                    )
-                } else {
-                    GradientPrimaryButton(
-                        text = "Далее",
-                        onClick = viewModel::moveForward,
-                        modifier = Modifier.weight(1f)
-                    )
+                    WizardProgressBar(viewModel.currentStep) { newStep ->
+                        if (newStep.index < viewModel.step) viewModel.moveBack()
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .widthIn(max = 720.dp)
+                                .align(Alignment.TopCenter)
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = 20.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            when (viewModel.currentStep) {
+                                WizardStep.BASICS -> BasicsStep(viewModel.draft, viewModel::updateTitle, viewModel::updateDescription, viewModel::updateCategory)
+                                WizardStep.PHOTOS -> PhotosStep(viewModel.draft, viewModel::addPhoto, viewModel::removePhoto, viewModel::makeCover, viewModel::movePhoto)
+                                WizardStep.LOCATION -> LocationStep(viewModel.draft, locationProvider, mapStyleJson, viewModel::updateLocation, viewModel::updateLocationDetails, viewModel::updateLocationVisibility)
+                                WizardStep.SCHEDULE -> ScheduleStep(viewModel.draft, viewModel::updateStartsAt, viewModel::updateDurationPreset, viewModel::updateCustomDuration, viewModel::updateShowTiming, viewModel::updateHideTiming)
+                                WizardStep.PARTICIPANTS -> ParticipantsStep(viewModel.draft, viewModel::updateParticipantLimit, viewModel::updateJoinPolicy, viewModel::updateAgeMin, viewModel::updateAgeMax, viewModel::updateSkillLevel, viewModel::updateCostType, viewModel::updateCostAmount, viewModel::updateCostNote, viewModel::addLanguage, viewModel::removeLanguage, viewModel::addBringItem, viewModel::removeBringItem, viewModel::addRule, viewModel::removeRule, viewModel::addQuestion, viewModel::removeQuestion)
+                                WizardStep.PREVIEW -> PreviewStep(viewModel.draft)
+                            }
+                            viewModel.errorMessage?.let { ErrorMessage(it) }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                    Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f), tonalElevation = 2.dp) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).imePadding(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            if (viewModel.step > 0) {
+                                OutlinedButton(
+                                    onClick = viewModel::moveBack,
+                                    modifier = Modifier.weight(0.34f).height(48.dp),
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Text("Назад", maxLines = 1, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            GradientPrimaryButton(
+                                text = if (viewModel.isLastStep) "Опубликовать" else "Далее",
+                                onClick = { if (viewModel.isLastStep) viewModel.submit() else viewModel.moveForward() },
+                                enabled = !viewModel.isSubmitting,
+                                loading = viewModel.isSubmitting,
+                                modifier = Modifier.weight(1f),
+                                fillMaxWidth = false
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -179,7 +134,6 @@ fun ActivityCreationSheet(
             text = { Text("Ваша активность \"${viewModel.draft.title}\" теперь видна на карте.") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.reset()
                     onDismiss()
                 }) {
                     Text("Готово")
@@ -194,7 +148,7 @@ private fun WizardProgressBar(
     step: WizardStep,
     onSelect: (WizardStep) -> Unit
 ) {
-    Column {
+    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -381,9 +335,17 @@ private fun PhotosStep(
 ) {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { onAddPhoto(it) }
+        uri?.let {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            onAddPhoto(it)
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -419,7 +381,7 @@ private fun PhotosStep(
                     .height(160.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { launcher.launch("image/*") },
+                    .clickable { launcher.launch(arrayOf("image/*")) },
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -441,7 +403,7 @@ private fun PhotosStep(
 
         GradientPrimaryButton(
             text = if (draft.photos.size >= 6) "Максимум 6 фото" else "Добавить фото",
-            onClick = { launcher.launch("image/*") },
+            onClick = { launcher.launch(arrayOf("image/*")) },
             enabled = draft.photos.size < 6,
             modifier = Modifier.fillMaxWidth()
         )
@@ -515,89 +477,226 @@ private fun PhotoCard(
 private fun LocationStep(
     draft: ActivityDraft,
     locationProvider: frezzy.gonow.core.location.DeviceLocationProvider,
+    mapStyleJson: String?,
     onLocationSet: (Double, Double) -> Unit,
+    onLocationDetails: (String?, String?, Boolean) -> Unit,
     onVisibilityChange: (frezzy.gonow.models.ActivityLocationVisibility) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(
-            text = "Местоположение",
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 15.sp
-        )
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var query by remember { mutableStateOf(draft.address.orEmpty()) }
+    var suggestions by remember { mutableStateOf<List<android.location.Address>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var showMapPicker by remember { mutableStateOf(false) }
 
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    fun searchAddress() {
+        if (query.isBlank()) return
+        scope.launch {
+            searching = true
+            suggestions = geocodeAddress(context, query)
+            searching = false
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Место проведения", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                Text("Координаты — источник истины. Вы решаете, кому показывать точную точку.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassSecondaryButton(
+                        text = "Моё место",
+                        onClick = {
+                            val lat = locationProvider.latitude
+                            val lon = locationProvider.longitude
+                            if (lat != null && lon != null) {
+                                onLocationSet(lat, lon)
+                                scope.launch {
+                                    val address = reverseGeocode(context, lat, lon)
+                                    onLocationDetails(address, null, true)
+                                    if (address != null) query = address
+                                }
+                            } else locationProvider.requestLocation()
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedButton(
+                        onClick = { showMapPicker = true },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(Icons.Filled.Map, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("На карте")
+                    }
+                }
                 val lat = draft.latitude
                 val lon = draft.longitude
                 if (lat != null && lon != null) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Success)
-                    Text(
-                        text = String.format("Координаты: %.5f, %.5f", lat, lon),
-                        fontSize = 13.sp
-                    )
-                } else {
-                    Text(
-                        text = "Местоположение не выбрано",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                GradientPrimaryButton(
-                    text = if (lat != null) "Использовать текущее местоположение" else "Определить местоположение",
-                    onClick = {
-                        val lat2 = locationProvider.latitude
-                        val lon2 = locationProvider.longitude
-                        if (lat2 != null && lon2 != null) {
-                            onLocationSet(lat2, lon2)
-                        } else {
-                            locationProvider.requestLocation()
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Success, modifier = Modifier.size(20.dp))
+                        Column {
+                            Text("Точка выбрана", color = Success, fontWeight = FontWeight.SemiBold)
+                            Text(String.format(Locale.US, "%.5f, %.5f", lat, lon), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                         }
                     }
-                )
+                } else Text("Выберите точку на карте или используйте геопозицию", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
-        Text(
-            text = "Видимость местоположения",
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 15.sp
-        )
-
-        GlassCard {
+        GlassCard(Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Адрес или место", fontWeight = FontWeight.SemiBold)
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Найти адрес") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        IconButton(onClick = ::searchAddress) {
+                            if (searching) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.ArrowForward, contentDescription = "Найти адрес")
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+                suggestions.forEach { address ->
+                    val label = address.getAddressLine(0) ?: address.featureName ?: "${address.latitude}, ${address.longitude}"
+                    TextButton(
+                        onClick = {
+                            onLocationSet(address.latitude, address.longitude)
+                            onLocationDetails(label, address.featureName, true)
+                            query = label
+                            suggestions = emptyList()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text(label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start) }
+                }
+            }
+        }
+
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Кому видно место", fontWeight = FontWeight.SemiBold)
                 frezzy.gonow.models.ActivityLocationVisibility.entries.forEach { visibility ->
-                    val isSelected = draft.locationVisibility == visibility
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                else Color.Transparent
-                            )
-                            .clickable { onVisibilityChange(visibility) }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        RadioButton(
-                            selected = isSelected,
-                            onClick = { onVisibilityChange(visibility) },
-                            colors = RadioButtonDefaults.colors(
-                                selectedColor = MaterialTheme.colorScheme.primary
-                            )
-                        )
-                        Text(
-                            text = visibility.titleRu,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                        )
+                    val selected = draft.locationVisibility == visibility
+                    FilterChip(
+                        selected = selected,
+                        onClick = { onVisibilityChange(visibility) },
+                        label = { Text(visibility.titleRu) },
+                        leadingIcon = if (selected) {{ Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }} else null
+                    )
+                }
+            }
+        }
+    }
+
+    if (showMapPicker) {
+        ActivityLocationPicker(
+            initial = draft.latitude?.let { lat -> draft.longitude?.let { lon -> frezzy.gonow.models.MapCoordinate(lat, lon) } },
+            fallback = locationProvider.latitude?.let { lat -> locationProvider.longitude?.let { lon -> frezzy.gonow.models.MapCoordinate(lat, lon) } },
+            mapStyleJson = mapStyleJson,
+            onDismiss = { showMapPicker = false },
+            onConfirm = { coordinate ->
+                onLocationSet(coordinate.latitude, coordinate.longitude)
+                showMapPicker = false
+                scope.launch {
+                    val address = reverseGeocode(context, coordinate.latitude, coordinate.longitude)
+                    val fallback = address ?: String.format(Locale.US, "%.5f, %.5f", coordinate.latitude, coordinate.longitude)
+                    onLocationDetails(fallback, null, true)
+                    query = fallback
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ActivityLocationPicker(
+    initial: frezzy.gonow.models.MapCoordinate?,
+    fallback: frezzy.gonow.models.MapCoordinate?,
+    mapStyleJson: String?,
+    onDismiss: () -> Unit,
+    onConfirm: (frezzy.gonow.models.MapCoordinate) -> Unit
+) {
+    var selected by remember(initial, fallback) { mutableStateOf(initial ?: fallback ?: frezzy.gonow.models.MapCoordinate(55.751244, 37.618423)) }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Box(Modifier.fillMaxSize()) {
+                frezzy.gonow.features.map.MapLibreMapView(
+                    modifier = Modifier.fillMaxSize(),
+                    styleJson = mapStyleJson,
+                    activities = emptyList(),
+                    userCoordinate = null,
+                    selectedActivityId = null,
+                    initialCamera = frezzy.gonow.models.PersistedMapCamera(selected, 14.0),
+                    onViewportIdle = { selected = it.center },
+                    onCameraMove = { selected = it },
+                    onActivityTap = {},
+                    onMapTap = { selected = it },
+                    pickerMode = true
+                )
+                Surface(
+                    modifier = Modifier.align(Alignment.Center).offset(y = (-24).dp).size(52.dp),
+                    shape = RoundedCornerShape(26.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    shadowElevation = 5.dp
+                ) {
+                    Icon(
+                        Icons.Filled.LocationOn,
+                        contentDescription = "Выбранная точка",
+                        tint = Color.White,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+                Surface(
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    tonalElevation = 2.dp
+                ) {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onDismiss, modifier = Modifier.height(48.dp)) { Text("Отмена") }
+                        Text("Выберите место", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.width(72.dp))
+                    }
+                }
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding(),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    tonalElevation = 6.dp,
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                ) {
+                    Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Коснитесь карты, чтобы передвинуть метку", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                        Text(String.format(Locale.US, "%.5f, %.5f", selected.latitude, selected.longitude), fontWeight = FontWeight.SemiBold)
+                        GradientPrimaryButton("Подтвердить точку", { onConfirm(selected) })
                     }
                 }
             }
         }
     }
 }
+
+private suspend fun geocodeAddress(context: android.content.Context, query: String): List<android.location.Address> =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        cancellableRunCatching {
+            @Suppress("DEPRECATION")
+            android.location.Geocoder(context, Locale.getDefault()).getFromLocationName(query, 5).orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+private suspend fun reverseGeocode(context: android.content.Context, latitude: Double, longitude: Double): String? =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        cancellableRunCatching {
+            @Suppress("DEPRECATION")
+            android.location.Geocoder(context, Locale.getDefault())
+                .getFromLocation(latitude, longitude, 1)
+                ?.firstOrNull()
+                ?.getAddressLine(0)
+        }.getOrNull()
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -895,20 +994,25 @@ private fun ParticipantsStep(
     onParticipantLimitChange: (Int?) -> Unit,
     onJoinPolicyChange: (frezzy.gonow.models.ActivityJoinPolicy) -> Unit,
     onAgeMinChange: (Int?) -> Unit,
+    onAgeMaxChange: (Int?) -> Unit,
     onSkillLevelChange: (frezzy.gonow.models.ActivitySkillLevel) -> Unit,
     onCostTypeChange: (frezzy.gonow.models.ActivityCostType) -> Unit,
     onCostAmountChange: (Int?) -> Unit,
+    onCostNoteChange: (String) -> Unit,
     onAddLanguage: (String) -> Unit,
     onRemoveLanguage: (String) -> Unit,
     onAddBringItem: (String) -> Unit,
     onRemoveBringItem: (String) -> Unit,
     onAddRule: (String) -> Unit,
-    onRemoveRule: (String) -> Unit
+    onRemoveRule: (String) -> Unit,
+    onAddQuestion: (frezzy.gonow.models.ActivityQuestion) -> Unit,
+    onRemoveQuestion: (String) -> Unit
 ) {
     val limitOptions = listOf(null to "Без ограничений", 2 to "2", 5 to "5", 10 to "10", 20 to "20")
     var languageInput by remember { mutableStateOf("") }
     var bringInput by remember { mutableStateOf("") }
     var ruleInput by remember { mutableStateOf("") }
+    var questionInput by remember { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
@@ -1013,6 +1117,17 @@ private fun ParticipantsStep(
                         }
                     }
                 }
+
+                OutlinedTextField(
+                    value = draft.ageMax?.toString().orEmpty(),
+                    onValueChange = { onAgeMaxChange(it.filter(Char::isDigit).toIntOrNull()) },
+                    label = { Text("Максимальный возраст") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                    ),
+                    singleLine = true
+                )
 
                 HorizontalDivider()
 
@@ -1147,6 +1262,12 @@ private fun ParticipantsStep(
                         singleLine = true
                     )
                 }
+                OutlinedTextField(
+                    value = draft.costNote,
+                    onValueChange = onCostNoteChange,
+                    label = { Text("Комментарий к стоимости") },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
@@ -1191,6 +1312,35 @@ private fun ParticipantsStep(
                             )
                         }
                     }
+                }
+            }
+        }
+
+
+        Text("Дополнительные вопросы", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = questionInput,
+                        onValueChange = { questionInput = it.take(200) },
+                        label = { Text("Вопрос участнику") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = {
+                        if (questionInput.isNotBlank()) {
+                            onAddQuestion(frezzy.gonow.models.ActivityQuestion(prompt = questionInput.trim()))
+                            questionInput = ""
+                        }
+                    }) { Icon(Icons.Default.Add, contentDescription = "Добавить вопрос") }
+                }
+                draft.additionalQuestions.forEach { question ->
+                    InputChip(
+                        selected = true,
+                        onClick = { onRemoveQuestion(question.id) },
+                        label = { Text(question.prompt) },
+                        trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Удалить") }
+                    )
                 }
             }
         }

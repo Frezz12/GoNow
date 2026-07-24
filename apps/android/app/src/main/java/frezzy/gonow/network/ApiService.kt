@@ -3,30 +3,43 @@ package frezzy.gonow.network
 import frezzy.gonow.models.*
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import okhttp3.ResponseBody
+import retrofit2.Response
 import retrofit2.http.*
 
 interface ApiService {
 
+    @Headers("X-GoNow-Public: true")
     @POST("auth/register")
     suspend fun register(@Body body: RegisterRequest): ApiEnvelope<RegistrationData>
 
+    @Headers("X-GoNow-Public: true")
     @POST("auth/verify-email")
     suspend fun verifyEmail(@Body body: VerifyEmailRequest): ApiEnvelope<AuthData>
 
+    @Headers("X-GoNow-Public: true")
     @POST("auth/login")
     suspend fun login(@Body body: LoginRequest): ApiEnvelope<AuthData>
 
+    @Headers("X-GoNow-Public: true")
     @POST("auth/forgot-password")
     suspend fun forgotPassword(@Body body: ForgotPasswordRequest): ApiEnvelope<Unit>
 
+    @Headers("X-GoNow-Public: true")
     @POST("auth/reset-password")
     suspend fun resetPassword(@Body body: ResetPasswordRequest): ApiEnvelope<AuthData>
 
+    @Headers("X-GoNow-Public: true")
     @POST("auth/refresh")
     suspend fun refresh(@Body body: RefreshRequest): ApiEnvelope<AuthData>
 
+    @Headers("X-GoNow-Public: true")
     @POST("auth/logout")
     suspend fun logout(@Body body: LogoutRequest): ApiEnvelope<Unit>
+
+    @Headers("X-GoNow-Public: true")
+    @GET("users/username-availability")
+    suspend fun usernameAvailability(@Query("username") username: String): ApiEnvelope<UsernameAvailability>
 
     @GET("users/me")
     suspend fun getCurrentUser(): ApiEnvelope<User>
@@ -51,6 +64,22 @@ interface ApiService {
     @DELETE("users/me/photos/{photoId}")
     suspend fun deletePhoto(@Path("photoId") photoId: String)
 
+    @PATCH("users/me/photos/{photoId}")
+    suspend fun updatePhoto(
+        @Path("photoId") photoId: String,
+        @Body body: UpdatePhotoRequest
+    ): ApiEnvelope<ProfilePhoto>
+
+    @POST("users/me/photos/{photoId}/like")
+    suspend fun likeOwnPhoto(@Path("photoId") photoId: String): ApiEnvelope<PhotoEngagement>
+
+    @DELETE("users/me/photos/{photoId}/like")
+    suspend fun unlikeOwnPhoto(@Path("photoId") photoId: String): ApiEnvelope<PhotoEngagement>
+
+    @Streaming
+    @GET
+    suspend fun getContent(@Url url: String): Response<ResponseBody>
+
     // ─── Activities ──────────────────────────────────────────
 
     @GET("activities/map")
@@ -68,7 +97,16 @@ interface ApiService {
     ): MapActivitiesEnvelope
 
     @POST("activities")
-    suspend fun createActivity(@Body body: CreateActivityRequest): ApiEnvelope<MapActivityResponse>
+    suspend fun createActivity(@Body body: CreateActivityRequest): ApiEnvelope<GoNowActivity>
+
+    @Multipart
+    @POST("activities/{id}/photos")
+    suspend fun uploadActivityPhoto(
+        @Path("id") id: String,
+        @Query("sortIndex") sortIndex: Int,
+        @Query("isCover") isCover: Boolean,
+        @Part file: MultipartBody.Part
+    ): ApiEnvelope<ActivityPhotoRef>
 
     // ─── Map Style ───────────────────────────────────────────
 
@@ -83,6 +121,9 @@ interface ApiService {
     @GET("activities/mine")
     suspend fun getOwnedActivities(): ApiEnvelope<List<GoNowActivity>>
 
+    @GET("activities/participating")
+    suspend fun getParticipatingActivities(): ApiEnvelope<List<GoNowActivity>>
+
     @PATCH("activities/{id}")
     suspend fun updateActivity(@Path("id") id: String, @Body body: UpdateActivityRequest): ApiEnvelope<GoNowActivity>
 
@@ -90,7 +131,10 @@ interface ApiService {
     suspend fun duplicateActivity(@Path("id") id: String): ApiEnvelope<GoNowActivity>
 
     @POST("activities/{id}/applications")
-    suspend fun applyToActivity(@Path("id") id: String, @Body body: Map<String, String?>): ApiEnvelope<ActivityApplication>
+    suspend fun applyToActivity(
+        @Path("id") id: String,
+        @Body body: CreateApplicationRequest
+    ): ApiEnvelope<ActivityApplication>
 
     @GET("activities/{id}/applications")
     suspend fun getApplications(@Path("id") id: String): ApiEnvelope<List<ActivityApplication>>
@@ -99,7 +143,7 @@ interface ApiService {
     suspend fun updateApplication(
         @Path("id") id: String,
         @Path("appId") appId: String,
-        @Body body: Map<String, String>
+        @Body body: UpdateApplicationRequest
     ): ApiEnvelope<ActivityApplication>
 
     // ─── Social ─────────────────────────────────────────────
@@ -107,14 +151,23 @@ interface ApiService {
     @GET("social/people")
     suspend fun getPeople(@Query("q") query: String? = null): ApiEnvelope<List<SocialUser>>
 
+    @GET("social/privacy")
+    suspend fun getSocialPrivacy(): ApiEnvelope<SocialPrivacySettings>
+
+    @PATCH("social/privacy")
+    suspend fun updateSocialPrivacy(@Body body: SocialPrivacySettings): ApiEnvelope<SocialPrivacySettings>
+
+    @GET("users/{id}")
+    suspend fun getPublicProfile(@Path("id") id: String): ApiEnvelope<PublicUserProfile>
+
     @POST("social/friends")
-    suspend fun requestFriend(@Body body: Map<String, String>): ApiEnvelope<Unit>
+    suspend fun requestFriend(@Body body: Map<String, String>): ApiEnvelope<SocialUser>
 
     @PATCH("social/friends/{id}")
-    suspend fun decideFriend(@Path("id") id: String, @Body body: Map<String, String>): ApiEnvelope<Unit>
+    suspend fun decideFriend(@Path("id") id: String, @Body body: Map<String, String>): ApiEnvelope<SocialUser>
 
     @DELETE("social/friends/{id}")
-    suspend fun removeFriend(@Path("id") id: String)
+    suspend fun removeFriend(@Path("id") id: String): ApiEnvelope<SocialUser>
 
     @GET("social/invitations")
     suspend fun getInvitations(): ApiEnvelope<List<MeetingInvitation>>
@@ -134,6 +187,12 @@ interface ApiService {
     @GET("social/conversations/{id}/messages")
     suspend fun getMessages(@Path("id") conversationId: String): ApiEnvelope<List<ChatMessage>>
 
+    @GET("social/conversations/{id}/messages/{msgId}")
+    suspend fun getMessage(
+        @Path("id") conversationId: String,
+        @Path("msgId") messageId: String
+    ): ApiEnvelope<ChatMessage>
+
     @POST("social/conversations/{id}/messages")
     suspend fun sendMessage(
         @Path("id") conversationId: String,
@@ -146,19 +205,28 @@ interface ApiService {
         @Path("msgId") messageId: String
     ): ApiEnvelope<ChatMessage>
 
+    @Multipart
+    @POST("social/conversations/{id}/attachments")
+    suspend fun uploadAttachment(
+        @Path("id") conversationId: String,
+        @Query("kind") kind: String,
+        @Query("durationSeconds") durationSeconds: Double? = null,
+        @Part file: MultipartBody.Part
+    ): ApiEnvelope<ChatMessage>
+
     // ─── Notifications ──────────────────────────────────────
 
     @GET("notifications")
     suspend fun getNotifications(): ApiEnvelope<NotificationFeed>
 
     @GET("notifications/unread-count")
-    suspend fun getUnreadCount(): ApiEnvelope<Map<String, Int>>
+    suspend fun getUnreadCount(): ApiEnvelope<NotificationUnreadCount>
 
     @PATCH("notifications/{id}/read")
     suspend fun markNotificationRead(@Path("id") id: String): ApiEnvelope<GoNowNotification>
 
     @POST("notifications/read-all")
-    suspend fun markAllNotificationsRead(): ApiEnvelope<Int>
+    suspend fun markAllNotificationsRead(): ApiEnvelope<NotificationUnreadCount>
 
     @DELETE("notifications/{id}")
     suspend fun deleteNotification(@Path("id") id: String)

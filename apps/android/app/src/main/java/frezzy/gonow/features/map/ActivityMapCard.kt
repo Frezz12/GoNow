@@ -25,6 +25,7 @@ import java.util.*
 fun ActivityMapCard(
     activity: MapActivityResponse,
     onClose: () -> Unit,
+    onOpen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     GlassCard(modifier = modifier.fillMaxWidth()) {
@@ -148,7 +149,7 @@ fun ActivityMapCard(
         // Open button
         GradientPrimaryButton(
             text = "Открыть",
-            onClick = { /* TODO: open activity detail */ },
+            onClick = onOpen,
             modifier = Modifier.fillMaxWidth()
         )
     }

@@ -20,16 +20,21 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import frezzy.gonow.ui.theme.*
+import frezzy.gonow.models.UsernameAvailability
 
 @Composable
 fun RegisterScreen(
-    onRegister: (String, String, String, String) -> Unit,
+    onRegister: (String, String, String, String, String) -> Unit,
+    onUsernameChange: (String) -> Unit,
     onNavigateToLogin: () -> Unit,
     isLoading: Boolean,
     fieldErrors: Map<String, String>,
-    errorMessage: String?
+    errorMessage: String?,
+    usernameAvailability: UsernameAvailability?,
+    isCheckingUsername: Boolean
 ) {
     var name by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
@@ -68,6 +73,26 @@ fun RegisterScreen(
                 placeholder = "Имя",
                 error = fieldErrors["name"]
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            RegAuthField(
+                label = "Username",
+                value = username,
+                onValueChange = {
+                    username = it.lowercase().filter { character ->
+                        character.isLetterOrDigit() || character == '_' || character == '@'
+                    }
+                    onUsernameChange(username)
+                },
+                placeholder = "@username",
+                error = fieldErrors["username"]
+            )
+            if (isCheckingUsername) {
+                Text("Проверяем доступность…", style = MaterialTheme.typography.labelSmall, modifier = Modifier.fillMaxWidth())
+            } else if (usernameAvailability?.available == true) {
+                Text("Username свободен", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.fillMaxWidth())
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -118,7 +143,7 @@ fun RegisterScreen(
 
             GradientPrimaryButton(
                 text = "Создать аккаунт",
-                onClick = { onRegister(name, email, password, confirmPassword) },
+                onClick = { onRegister(name, username, email, password, confirmPassword) },
                 loading = isLoading
             )
 

@@ -8,12 +8,21 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import frezzy.gonow.data.ActivityRepository
+import frezzy.gonow.data.ActivityDraftStore
+import frezzy.gonow.data.ActivityPhotoProcessor
+import frezzy.gonow.data.PendingActivityUpload
 import frezzy.gonow.models.*
+import frezzy.gonow.core.throwIfCancellation
 import kotlinx.coroutines.launch
 
-class ActivityCreationViewModel(private val repository: ActivityRepository) : ViewModel() {
+class ActivityCreationViewModel(
+    private val repository: ActivityRepository,
+    private val draftStore: ActivityDraftStore,
+    private val photoProcessor: ActivityPhotoProcessor
+) : ViewModel() {
 
-    var draft by mutableStateOf(ActivityDraft())
+    var draft by mutableStateOf(draftStore.load() ?: ActivityDraft())
+        private set
 
     var step by mutableIntStateOf(WizardStep.BASICS.index)
         private set
@@ -24,7 +33,7 @@ class ActivityCreationViewModel(private val repository: ActivityRepository) : Vi
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
-    var publishedActivity by mutableStateOf<MapActivityResponse?>(null)
+    var publishedActivity by mutableStateOf<GoNowActivity?>(null)
         private set
 
     val currentStep: WizardStep get() = WizardStep.entries[step]
@@ -32,73 +41,80 @@ class ActivityCreationViewModel(private val repository: ActivityRepository) : Vi
     val canMoveForward: Boolean get() = validateCurrentStep() == null
 
     fun updateTitle(title: String) {
-        if (title.length <= 70) draft = draft.copy(title = title)
+        if (title.length <= 70) updateDraft(draft.copy(title = title))
     }
 
     fun updateDescription(desc: String) {
-        if (desc.length <= 3000) draft = draft.copy(description = desc)
+        if (desc.length <= 3000) updateDraft(draft.copy(description = desc))
     }
 
     fun updateCategory(category: ActivityCategory) {
-        draft = draft.copy(category = category)
+        updateDraft(draft.copy(category = category))
     }
 
     fun updateStartsAt(startsAt: String) {
-        draft = draft.copy(startsAt = startsAt)
+        updateDraft(draft.copy(startsAt = startsAt))
     }
 
     fun updateDurationPreset(preset: ActivityDurationPreset) {
-        draft = draft.copy(durationPreset = preset)
+        updateDraft(draft.copy(durationPreset = preset))
     }
 
     fun updateCustomDuration(minutes: Int) {
-        draft = draft.copy(customDurationMinutes = minutes)
+        updateDraft(draft.copy(customDurationMinutes = minutes))
     }
 
     fun updateShowTiming(timing: ActivityShowTiming) {
-        draft = draft.copy(showTiming = timing)
+        updateDraft(draft.copy(showTiming = timing))
     }
 
     fun updateHideTiming(timing: ActivityHideTiming) {
-        draft = draft.copy(hideTiming = timing)
+        updateDraft(draft.copy(hideTiming = timing))
     }
 
     fun updateParticipantLimit(limit: Int?) {
-        draft = draft.copy(participantLimit = limit)
+        updateDraft(draft.copy(participantLimit = limit))
     }
 
     fun updateJoinPolicy(policy: ActivityJoinPolicy) {
-        draft = draft.copy(joinPolicy = policy)
+        updateDraft(draft.copy(joinPolicy = policy))
     }
 
     fun updateAgeMin(age: Int?) {
-        draft = draft.copy(ageMin = age)
+        updateDraft(draft.copy(ageMin = age))
     }
 
+    fun updateAgeMax(age: Int?) = updateDraft(draft.copy(ageMax = age))
+
     fun updateSkillLevel(level: ActivitySkillLevel) {
-        draft = draft.copy(skillLevel = level)
+        updateDraft(draft.copy(skillLevel = level))
     }
 
     fun updateLocationVisibility(visibility: ActivityLocationVisibility) {
-        draft = draft.copy(locationVisibility = visibility)
+        updateDraft(draft.copy(locationVisibility = visibility))
     }
 
     fun updateCostType(type: ActivityCostType) {
-        draft = draft.copy(costType = type)
+        updateDraft(draft.copy(costType = type))
     }
 
     fun updateCostAmount(cents: Int?) {
-        draft = draft.copy(costAmountCents = cents)
+        updateDraft(draft.copy(costAmountCents = cents))
     }
 
+    fun updateCostNote(note: String) = updateDraft(draft.copy(costNote = note.take(500)))
+
     fun updateLocation(lat: Double, lon: Double) {
-        draft = draft.copy(latitude = lat, longitude = lon)
+        updateDraft(draft.copy(latitude = lat, longitude = lon))
     }
+
+    fun updateLocationDetails(address: String?, venueName: String?, isExact: Boolean) =
+        updateDraft(draft.copy(address = address, venueName = venueName, isExactLocation = isExact))
 
     fun addPhoto(uri: Uri) {
         if (draft.photos.size >= 6) return
         val isCover = draft.photos.isEmpty()
-        draft = draft.copy(photos = draft.photos + ActivityDraftPhoto(uri = uri, isCover = isCover))
+        updateDraft(draft.copy(photos = draft.photos + ActivityDraftPhoto(uri = uri, isCover = isCover)))
     }
 
     fun removePhoto(index: Int) {
@@ -107,7 +123,7 @@ class ActivityCreationViewModel(private val repository: ActivityRepository) : Vi
         val wasCover = photos[index].isCover
         photos.removeAt(index)
         if (wasCover && photos.isNotEmpty()) photos[0] = photos[0].copy(isCover = true)
-        draft = draft.copy(photos = photos)
+        updateDraft(draft.copy(photos = photos))
     }
 
     fun makeCover(index: Int) {
@@ -116,7 +132,7 @@ class ActivityCreationViewModel(private val repository: ActivityRepository) : Vi
         photos.forEachIndexed { i, p -> photos[i] = p.copy(isCover = i == index) }
         val photo = photos.removeAt(index)
         photos.add(0, photo)
-        draft = draft.copy(photos = photos)
+        updateDraft(draft.copy(photos = photos))
     }
 
     fun movePhoto(index: Int, direction: Int) {
@@ -125,38 +141,44 @@ class ActivityCreationViewModel(private val repository: ActivityRepository) : Vi
         val dest = (index + direction).coerceIn(0, photos.size - 1)
         if (index == dest) return
         photos.swap(index, dest)
-        draft = draft.copy(photos = photos)
+        updateDraft(draft.copy(photos = photos))
     }
 
     fun addLanguage(language: String) {
         val clean = language.trim()
         if (clean.isBlank() || draft.languages.contains(clean)) return
-        draft = draft.copy(languages = (draft.languages + clean).toMutableList())
+        updateDraft(draft.copy(languages = (draft.languages + clean).toMutableList()))
     }
 
     fun removeLanguage(language: String) {
-        draft = draft.copy(languages = draft.languages.filter { it != language }.toMutableList())
+        updateDraft(draft.copy(languages = draft.languages.filter { it != language }.toMutableList()))
     }
 
     fun addBringItem(item: String) {
         val clean = item.trim()
         if (clean.isBlank() || draft.bringItems.contains(clean)) return
-        draft = draft.copy(bringItems = (draft.bringItems + clean).toMutableList())
+        updateDraft(draft.copy(bringItems = (draft.bringItems + clean).toMutableList()))
     }
 
     fun removeBringItem(item: String) {
-        draft = draft.copy(bringItems = draft.bringItems.filter { it != item }.toMutableList())
+        updateDraft(draft.copy(bringItems = draft.bringItems.filter { it != item }.toMutableList()))
     }
 
     fun addRule(rule: String) {
         val clean = rule.trim()
         if (clean.isBlank() || draft.rules.contains(clean)) return
-        draft = draft.copy(rules = (draft.rules + clean).toMutableList())
+        updateDraft(draft.copy(rules = (draft.rules + clean).toMutableList()))
     }
 
     fun removeRule(rule: String) {
-        draft = draft.copy(rules = draft.rules.filter { it != rule }.toMutableList())
+        updateDraft(draft.copy(rules = draft.rules.filter { it != rule }.toMutableList()))
     }
+
+    fun addQuestion(question: ActivityQuestion) =
+        updateDraft(draft.copy(additionalQuestions = draft.additionalQuestions + question))
+
+    fun removeQuestion(id: String) =
+        updateDraft(draft.copy(additionalQuestions = draft.additionalQuestions.filterNot { it.id == id }))
 
     fun moveForward() {
         val error = validateCurrentStep()
@@ -189,28 +211,72 @@ class ActivityCreationViewModel(private val repository: ActivityRepository) : Vi
         errorMessage = null
         viewModelScope.launch {
             try {
-                val activity = repository.createActivity(
-                    CreateActivityRequest(
+                val startsAt = currentDraft.startsAt.ifBlank {
+                    java.time.Instant.now().plusSeconds(3_600).toString()
+                }
+                val createRequest = CreateActivityRequest(
                         title = cleanTitle,
                         category = currentDraft.category.apiValue,
                         latitude = coord.latitude,
                         longitude = coord.longitude,
                         description = currentDraft.description,
-                        startsAt = currentDraft.startsAt.ifBlank { null },
+                        address = currentDraft.address,
+                        venueName = currentDraft.venueName,
+                        locationVisibility = currentDraft.locationVisibility.apiValue,
+                        startsAt = startsAt,
                         durationMinutes = currentDraft.durationMinutes,
+                        showAfter = computeShowAfter(currentDraft, startsAt),
+                        hideAfter = computeHideAfter(currentDraft, startsAt),
                         participantLimit = currentDraft.participantLimit,
                         joinPolicy = currentDraft.joinPolicy.apiValue,
                         ageMin = currentDraft.ageMin,
+                        ageMax = currentDraft.ageMax,
                         skillLevel = currentDraft.skillLevel.apiValue,
                         languages = currentDraft.languages,
                         costType = currentDraft.costType.apiValue,
                         costAmountCents = currentDraft.costAmountCents,
+                        costNote = currentDraft.costNote.trim().ifBlank { null },
                         bringItems = currentDraft.bringItems,
-                        rules = currentDraft.rules
+                        rules = currentDraft.rules,
+                        additionalQuestions = currentDraft.additionalQuestions,
+                        status = if (currentDraft.photos.isEmpty()) "published" else "draft"
                     )
-                )
-                publishedActivity = activity
+                suspend fun createFreshActivity(): GoNowActivity =
+                    repository.createActivity(createRequest).also {
+                        draftStore.savePendingUpload(PendingActivityUpload(it.id))
+                    }
+                var pending = draftStore.pendingUpload()
+                val created = if (pending == null) {
+                    createFreshActivity()
+                } else {
+                    val savedPending = requireNotNull(pending)
+                    try {
+                        repository.getActivity(savedPending.activityId)
+                    } catch (error: ApiError) {
+                        val statusCode = when (error) {
+                            is ApiError.Http -> error.statusCode
+                            is ApiError.Server -> error.statusCode
+                            else -> null
+                        }
+                        if (statusCode != 404) throw error
+                        draftStore.clearPendingUpload()
+                        pending = null
+                        createFreshActivity()
+                    }
+                }
+
+                var uploaded = pending?.uploadedPhotos ?: 0
+                currentDraft.photos.drop(uploaded).forEachIndexed { offset, photo ->
+                    val index = uploaded + offset
+                    val bytes = photoProcessor.jpeg(photo.uri)
+                    repository.uploadActivityPhoto(created.id, bytes, index, photo.isCover)
+                    draftStore.savePendingUpload(PendingActivityUpload(created.id, index + 1))
+                }
+                repository.updateActivity(created.id, UpdateActivityRequest(status = "published"))
+                publishedActivity = repository.getActivity(created.id)
+                draftStore.clear()
             } catch (e: Exception) {
+                e.throwIfCancellation()
                 errorMessage = e.message
             } finally {
                 isSubmitting = false
@@ -223,12 +289,44 @@ class ActivityCreationViewModel(private val repository: ActivityRepository) : Vi
     }
 
     fun reset() {
+        draftStore.clear()
         draft = ActivityDraft()
         step = WizardStep.BASICS.index
         isSubmitting = false
         errorMessage = null
         publishedActivity = null
     }
+
+    private fun updateDraft(value: ActivityDraft) {
+        draft = value
+        draftStore.save(value)
+    }
+
+    private fun computeShowAfter(value: ActivityDraft, startsAt: String): String {
+        val start = parseInstant(startsAt)
+        return when (value.showTiming) {
+            ActivityShowTiming.IMMEDIATELY -> java.time.Instant.now().toString()
+            ActivityShowTiming.CUSTOM -> value.customShowAfter.takeIf { it.isNotBlank() } ?: startsAt
+            else -> start.minusSeconds(value.showTiming.leadTimeSeconds ?: 0).toString()
+        }
+    }
+
+    private fun computeHideAfter(value: ActivityDraft, startsAt: String): String {
+        val start = parseInstant(startsAt)
+        val end = start.plusSeconds(value.durationMinutes * 60L)
+        return when (value.hideTiming) {
+            ActivityHideTiming.AFTER_START -> start
+            ActivityHideTiming.AFTER_END -> end
+            ActivityHideTiming.ONE_HOUR_AFTER_END -> end.plusSeconds(3_600)
+            ActivityHideTiming.CUSTOM -> parseInstant(value.customHideAfter.ifBlank { end.toString() })
+        }.toString()
+    }
+
+    private fun parseInstant(value: String): java.time.Instant =
+        runCatching { java.time.Instant.parse(value) }.getOrElse {
+            runCatching { java.time.OffsetDateTime.parse(value).toInstant() }
+                .getOrElse { java.time.Instant.now().plusSeconds(3_600) }
+        }
 
     private fun validateCurrentStep(): String? {
         return when (currentStep) {

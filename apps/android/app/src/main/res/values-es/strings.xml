@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tab_map">Mapa</string><string name="tab_tasks">Tareas</string><string name="tab_chat">Chat</string><string name="tab_profile">Perfil</string>
+    <string name="settings_title">Ajustes</string><string name="common_done">Listo</string><string name="common_retry">Reintentar</string><string name="common_close">Cerrar</string><string name="common_save">Guardar</string>
+    <string name="settings_theme_title">Apariencia</string><string name="settings_theme_system">Sistema</string><string name="settings_theme_light">Claro</string><string name="settings_theme_dark">Oscuro</string>
+    <string name="settings_language_title">Idioma y región</string><string name="settings_language_system">Idioma del sistema</string><string name="settings_weather_title">Tiempo</string><string name="settings_temperature_title">Temperatura</string><string name="settings_temperature_automatic">Automático</string>
+    <string name="settings_account_title">Cuenta</string><string name="settings_account_description">Cerrar sesión finalizará la sesión solo en este dispositivo.</string><string name="settings_sign_out">Cerrar sesión</string>
+</resources>

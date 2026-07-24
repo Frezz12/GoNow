@@ -1,181 +1,383 @@
 package frezzy.gonow.features.activity
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import frezzy.gonow.models.ActivityCategory
-import frezzy.gonow.models.MapActivityResponse
-import frezzy.gonow.ui.theme.*
-import java.text.SimpleDateFormat
-import java.util.*
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import frezzy.gonow.core.viewModelFactory
+import frezzy.gonow.core.MediaCache
+import frezzy.gonow.core.cancellableRunCatching
+import frezzy.gonow.data.ActivityRepository
+import frezzy.gonow.models.ActivityApplication
+import frezzy.gonow.models.ActivityApplicationAnswer
+import frezzy.gonow.models.ActivityQuestion
+import frezzy.gonow.models.GoNowActivity
+import frezzy.gonow.models.UpdateActivityRequest
+import frezzy.gonow.ui.theme.Background
+import frezzy.gonow.ui.theme.GlassCard
+import java.time.Instant
+import java.io.File
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.graphics.Color
+
+data class ActivityDetailUiState(
+    val activity: GoNowActivity? = null,
+    val applications: List<ActivityApplication> = emptyList(),
+    val loading: Boolean = true,
+    val actionInProgress: Boolean = false,
+    val error: String? = null,
+    val message: String? = null
+)
+
+class ActivityDetailViewModel(
+    private val repository: ActivityRepository,
+    private val activityId: String
+) : ViewModel() {
+    var state by mutableStateOf(ActivityDetailUiState())
+        private set
+
+    fun load() {
+        viewModelScope.launch {
+            state = state.copy(loading = true, error = null)
+            cancellableRunCatching { repository.getActivity(activityId) }
+                .onSuccess { activity ->
+                    state = state.copy(activity = activity, loading = false)
+                    if (activity.isOrganizer) loadApplications()
+                }
+                .onFailure { state = state.copy(loading = false, error = it.message ?: "Не удалось загрузить активность") }
+        }
+    }
+
+    fun apply(message: String?, answers: List<ActivityApplicationAnswer>) = action {
+        repository.applyToActivity(activityId, message?.trim()?.ifBlank { null }, answers)
+        repository.getActivity(activityId)
+    }
+
+    fun setRecruitmentClosed(closed: Boolean) = action {
+        repository.updateActivity(activityId, UpdateActivityRequest(recruitmentClosed = closed))
+    }
+
+    fun setStatus(status: String) = action {
+        repository.updateActivity(activityId, UpdateActivityRequest(status = status))
+    }
+
+    fun duplicate() = action("Создан черновик-копия") {
+        repository.duplicateActivity(activityId)
+    }
+
+    fun decideApplication(applicationId: String, status: String) {
+        viewModelScope.launch {
+            state = state.copy(actionInProgress = true, error = null)
+            cancellableRunCatching { repository.updateApplication(activityId, applicationId, status) }
+                .onSuccess { updated ->
+                    state = state.copy(
+                        applications = state.applications.map { if (it.id == updated.id) updated else it },
+                        actionInProgress = false
+                    )
+                }
+                .onFailure { state = state.copy(actionInProgress = false, error = it.message) }
+        }
+    }
+
+    fun clearMessage() { state = state.copy(message = null) }
+
+    private fun loadApplications() {
+        viewModelScope.launch {
+            cancellableRunCatching { repository.getApplications(activityId) }
+                .onSuccess { state = state.copy(applications = it) }
+                .onFailure { state = state.copy(error = it.message) }
+        }
+    }
+
+    private fun action(successMessage: String? = null, block: suspend () -> GoNowActivity) {
+        viewModelScope.launch {
+            state = state.copy(actionInProgress = true, error = null, message = null)
+            cancellableRunCatching { block() }
+                .onSuccess { activity ->
+                    state = state.copy(activity = activity, actionInProgress = false, message = successMessage)
+                    if (activity.isOrganizer) loadApplications()
+                }
+                .onFailure { state = state.copy(actionInProgress = false, error = it.message ?: "Не удалось выполнить действие") }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActivityDetailSheet(
-    activity: MapActivityResponse,
+    repository: ActivityRepository,
+    mediaCache: MediaCache,
+    activityId: String,
+    initialTitle: String,
+    onOpenChat: (conversationId: String, title: String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val detailViewModel: ActivityDetailViewModel = viewModel(
+        key = "activity-detail-$activityId",
+        factory = viewModelFactory { ActivityDetailViewModel(repository, activityId) }
+    )
+    val state = detailViewModel.state
+    var showApply by remember { mutableStateOf(false) }
+    val photoFiles = remember(activityId) { mutableStateMapOf<String, String>() }
+    var photoError by remember(activityId) { mutableStateOf<String?>(null) }
+    var photoReload by remember(activityId) { mutableStateOf(0) }
+
+    LaunchedEffect(activityId) { detailViewModel.load() }
+    LaunchedEffect(state.activity?.photos, photoReload) {
+        state.activity?.photos?.forEach { photo ->
+            if (photoFiles.containsKey(photo.id)) return@forEach
+            cancellableRunCatching {
+                mediaCache.file(photo.contentPath) { repository.getPhotoContent(photo.contentPath) }
+            }.onSuccess { photoFiles[photo.id] = it.absolutePath }
+                .onFailure { photoError = it.message ?: "Не удалось загрузить фотографии" }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = Background,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 360.dp, max = 760.dp)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header with category icon
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(categoryDetailColor(activity.parsedCategory)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = categoryDetailIcon(activity.parsedCategory),
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = activity.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    )
-                    Text(
-                        text = activity.parsedCategory.titleRu,
-                        fontSize = 14.sp,
-                        color = categoryDetailColor(activity.parsedCategory),
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "Закрыть")
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(state.activity?.title ?: initialTitle, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Закрыть") }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            when {
+                state.loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                state.activity == null -> {
+                    Text(state.error ?: "Активность не найдена", color = MaterialTheme.colorScheme.error)
+                    Button(onClick = detailViewModel::load, modifier = Modifier.fillMaxWidth()) { Text("Повторить") }
+                }
+                else -> ActivityDetailContent(
+                    activity = state.activity,
+                    photoFiles = photoFiles,
+                    applications = state.applications,
+                    busy = state.actionInProgress,
+                    error = state.error,
+                    message = state.message,
+                    onApply = { showApply = true },
+                    onOpenChat = { id -> onOpenChat(id, state.activity.title) },
+                    onRecruitment = detailViewModel::setRecruitmentClosed,
+                    onStatus = detailViewModel::setStatus,
+                    onDuplicate = detailViewModel::duplicate,
+                    onDecision = detailViewModel::decideApplication
+                )
+            }
+            photoError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { photoError = null; photoReload++ }) { Text("Повторить загрузку фото") }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
 
-            // Info card
-            GlassCard {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Date & Time
-                    activity.startsAt?.let { startsAt ->
-                        DetailRow(
-                            icon = Icons.Filled.CalendarToday,
-                            label = "Когда",
-                            value = formatDetailTime(startsAt)
-                        )
-                    }
+    state.activity?.let { activity ->
+        if (showApply) {
+            ActivityApplicationDialog(
+                questions = activity.additionalQuestions,
+                onDismiss = { showApply = false },
+                onSubmit = { message, answers ->
+                    showApply = false
+                    detailViewModel.apply(message, answers)
+                }
+            )
+        }
+    }
+}
 
-                    // Participants
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                    DetailRow(
-                        icon = Icons.Filled.People,
-                        label = "Участники",
-                        value = activity.participantLimit?.let {
-                            "${activity.participantCount} из $it мест"
-                        } ?: "${activity.participantCount} участников"
-                    )
+@Composable
+private fun ActivityDetailContent(
+    activity: GoNowActivity,
+    photoFiles: Map<String, String>,
+    applications: List<ActivityApplication>,
+    busy: Boolean,
+    error: String?,
+    message: String?,
+    onApply: () -> Unit,
+    onOpenChat: (String) -> Unit,
+    onRecruitment: (Boolean) -> Unit,
+    onStatus: (String) -> Unit,
+    onDuplicate: () -> Unit,
+    onDecision: (String, String) -> Unit
+) {
+    if (activity.photos.isNotEmpty()) {
+        ActivityPhotoGallery(
+            files = activity.photos.sortedBy { it.sortIndex }.mapNotNull { photoFiles[it.id] }
+        )
+    }
+    if (activity.description.isNotBlank()) Text(activity.description)
 
-                    // Distance
-                    activity.distanceMeters?.let { dist ->
-                        if (dist > 0) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                            DetailRow(
-                                icon = Icons.Filled.LocationOn,
-                                label = "Расстояние",
-                                value = formatDetailDist(dist)
-                            )
-                        }
-                    }
+    GlassCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            activity.startsAt?.let { DetailRow(Icons.Default.CalendarToday, "Когда", formatDate(it)) }
+            val location = activity.location
+            val place = listOfNotNull(location?.venueName, location?.address).joinToString(", ")
+            if (place.isNotBlank()) DetailRow(Icons.Default.LocationOn, "Где", place)
+            DetailRow(
+                Icons.Default.People,
+                "Участники",
+                activity.participantLimit?.let { "${activity.participantCount} из $it" } ?: activity.participantCount.toString()
+            )
+            if (activity.languages.isNotEmpty()) Text("Языки: ${activity.languages.joinToString()}")
+            if (activity.ageMin != null || activity.ageMax != null) {
+                Text("Возраст: ${activity.ageMin ?: 0}–${activity.ageMax ?: "без ограничения"}")
+            }
+            if (activity.costType != "free") {
+                Text("Стоимость: ${activity.costAmountCents?.let { "${it / 100.0}" } ?: activity.costType}${activity.costNote?.let { ", $it" }.orEmpty()}")
+            }
+        }
+    }
 
-                    // Joined status
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                    DetailRow(
-                        icon = if (activity.isJoined) Icons.Filled.CheckCircle else Icons.Filled.PersonAdd,
-                        label = "Статус",
-                        value = if (activity.isJoined) "Вы участвуете" else "Можно присоединиться"
-                    )
+    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
 
-                    // Full warning
-                    if (activity.isFull) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.Warning,
-                                contentDescription = null,
-                                tint = Warning,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Места закончились",
-                                fontSize = 14.sp,
-                                color = Warning,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
+    if (activity.isOrganizer) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Набор закрыт", modifier = Modifier.weight(1f))
+            Switch(checked = activity.recruitmentClosed, onCheckedChange = { onRecruitment(it) }, enabled = !busy)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onDuplicate, enabled = !busy, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null)
+                Text("Повторить")
+            }
+            if (activity.status !in listOf("completed", "cancelled")) {
+                OutlinedButton(onClick = { onStatus("cancelled") }, enabled = !busy, modifier = Modifier.weight(1f)) {
+                    Text("Отменить")
+                }
+            }
+        }
+        if (applications.isNotEmpty()) {
+            Text("Заявки", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            applications.forEach { application ->
+                GlassCard {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(application.applicant.displayName, fontWeight = FontWeight.SemiBold)
+                        application.message?.let { Text(it) }
+                        application.answers.forEach { Text(it.value, style = MaterialTheme.typography.bodySmall) }
+                        if (application.status == "pending") {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { onDecision(application.id, "accepted") }, enabled = !busy) { Text("Принять") }
+                                OutlinedButton(onClick = { onDecision(application.id, "rejected") }, enabled = !busy) { Text("Отклонить") }
+                            }
+                        } else Text(application.parsedStatus.titleRu)
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Action button
-            if (activity.isJoined) {
-                OutlinedButton(
-                    onClick = { /* TODO: open chat */ },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(Icons.Filled.Chat, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
+        }
+    } else {
+        when {
+            activity.canAccessChat && activity.chatConversationId != null -> {
+                Button(onClick = { onOpenChat(activity.chatConversationId) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
                     Text("Открыть чат")
                 }
-            } else if (!activity.isFull) {
-                GradientPrimaryButton(
-                    text = "Присоединиться",
-                    onClick = { /* TODO: apply to activity */ }
-                )
-            } else {
-                OutlinedButton(
-                    onClick = {},
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = false,
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text("Нет свободных мест")
+            }
+            activity.applicationStatus == "pending" -> OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Заявка отправлена") }
+            activity.isFull || activity.recruitmentClosed -> OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Набор закрыт") }
+            else -> Button(onClick = onApply, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Присоединиться") }
+        }
+    }
+}
+
+@Composable
+private fun ActivityPhotoGallery(files: List<String>) {
+    var selected by remember { mutableStateOf<String?>(null) }
+    if (files.isEmpty()) {
+        Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+    } else {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(files) { path ->
+                val file = remember(path) { File(path) }
+                val bitmap = remember(path) { BitmapFactory.decodeFile(file.absolutePath) }
+                bitmap?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = "Фотография активности",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(width = 260.dp, height = 180.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { selected = path }
+                    )
+                }
+            }
+        }
+    }
+    selected?.let { path ->
+        Dialog(onDismissRequest = { selected = null }) {
+            val bitmap = remember(path) { BitmapFactory.decodeFile(path) }
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black).clickable { selected = null },
+                contentAlignment = Alignment.Center
+            ) {
+                bitmap?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = "Фотография активности на весь экран",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }
@@ -183,71 +385,52 @@ fun ActivityDetailSheet(
 }
 
 @Composable
-private fun DetailRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    value: String
+private fun ActivityApplicationDialog(
+    questions: List<ActivityQuestion>,
+    onDismiss: () -> Unit,
+    onSubmit: (String?, List<ActivityApplicationAnswer>) -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp)
-        )
-        Column {
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = value,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
+    var message by remember { mutableStateOf("") }
+    val answers = remember { mutableStateMapOf<String, String>() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Заявка на участие") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(value = message, onValueChange = { message = it.take(500) }, label = { Text("Сообщение организатору") })
+                questions.forEach { question ->
+                    OutlinedTextField(
+                        value = answers[question.id].orEmpty(),
+                        onValueChange = { answers[question.id] = it },
+                        label = { Text(question.prompt + if (question.required) " *" else "") }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onSubmit(
+                        message.ifBlank { null },
+                        answers.map { ActivityApplicationAnswer(it.key, it.value) }
+                    )
+                },
+                enabled = questions.filter { it.required }.all { answers[it.id]?.isNotBlank() == true }
+            ) { Text("Отправить") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
+}
+
+@Composable
+private fun DetailRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column { Text(label, style = MaterialTheme.typography.labelSmall); Text(value) }
     }
 }
 
-private fun formatDetailTime(iso: String): String {
-    return try {
-        val input = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-        val output = SimpleDateFormat("d MMMM yyyy, HH:mm", Locale("ru"))
-        input.parse(iso)?.let { output.format(it) } ?: iso
-    } catch (_: Exception) { iso }
-}
-
-private fun formatDetailDist(meters: Double): String =
-    if (meters < 1000) "${meters.toInt()} м" else String.format("%.1f км", meters / 1000)
-
-private fun categoryDetailColor(cat: ActivityCategory) = when (cat) {
-    ActivityCategory.WALKING -> Color(0xFF4CAF50)
-    ActivityCategory.SPORT -> Color(0xFFF44336)
-    ActivityCategory.TRAVEL -> Color(0xFF2196F3)
-    ActivityCategory.MUSIC -> Color(0xFF9C27B0)
-    ActivityCategory.GAMES -> Color(0xFF3F51B5)
-    ActivityCategory.FOOD -> Color(0xFFFF9800)
-    ActivityCategory.HELP -> Color(0xFF009688)
-    ActivityCategory.EDUCATION -> Color(0xFF795548)
-    ActivityCategory.ANIMALS -> Color(0xFF00C853)
-    ActivityCategory.EVENT -> Color(0xFFE91E63)
-    ActivityCategory.OTHER -> Color(0xFF9E9E9E)
-}
-
-private fun categoryDetailIcon(cat: ActivityCategory) = when (cat) {
-    ActivityCategory.WALKING -> Icons.Filled.DirectionsWalk
-    ActivityCategory.SPORT -> Icons.Filled.Sports
-    ActivityCategory.TRAVEL -> Icons.Filled.Flight
-    ActivityCategory.MUSIC -> Icons.Filled.MusicNote
-    ActivityCategory.GAMES -> Icons.Filled.SportsEsports
-    ActivityCategory.FOOD -> Icons.Filled.Restaurant
-    ActivityCategory.HELP -> Icons.Filled.Handshake
-    ActivityCategory.EDUCATION -> Icons.Filled.School
-    ActivityCategory.ANIMALS -> Icons.Filled.Pets
-    ActivityCategory.EVENT -> Icons.Filled.Event
-    ActivityCategory.OTHER -> Icons.Filled.AutoAwesome
-}
+private fun formatDate(value: String): String = runCatching {
+    val instant = runCatching { Instant.parse(value) }.getOrElse { OffsetDateTime.parse(value).toInstant() }
+    DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm").withZone(ZoneId.systemDefault()).format(instant)
+}.getOrDefault(value)

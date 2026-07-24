@@ -3,13 +3,34 @@ package frezzy.gonow.features.notifications
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import frezzy.gonow.data.NotificationRepository
 import frezzy.gonow.models.*
+import frezzy.gonow.core.throwIfCancellation
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class NotificationsViewModel(private val repository: NotificationRepository) : ViewModel() {
+
+    private var liveJob: Job? = null
+
+    fun start() {
+        if (liveJob?.isActive == true) return
+        load()
+        liveJob = viewModelScope.launch {
+            repository.liveEvents().collect { event ->
+                unreadCount = event.unreadCount
+                refresh(silent = true)
+            }
+        }
+    }
+
+    fun stop() {
+        liveJob?.cancel()
+        liveJob = null
+        repository.closeLiveEvents()
+    }
 
     var notifications by mutableStateOf<List<GoNowNotification>>(emptyList())
         private set
@@ -52,7 +73,11 @@ class NotificationsViewModel(private val repository: NotificationRepository) : V
     fun selectFilter(f: NotificationFilter) { filter = f }
 
     fun load() {
-        isLoading = true
+        refresh(silent = false)
+    }
+
+    private fun refresh(silent: Boolean) {
+        if (!silent) isLoading = true
         errorMessage = null
         viewModelScope.launch {
             try {
@@ -60,11 +85,17 @@ class NotificationsViewModel(private val repository: NotificationRepository) : V
                 notifications = feed.items
                 unreadCount = feed.unreadCount
             } catch (e: Exception) {
+                e.throwIfCancellation()
                 errorMessage = e.message
             } finally {
-                isLoading = false
+                if (!silent) isLoading = false
             }
         }
+    }
+
+    override fun onCleared() {
+        stop()
+        super.onCleared()
     }
 
     fun markRead(notification: GoNowNotification) {
@@ -77,7 +108,10 @@ class NotificationsViewModel(private val repository: NotificationRepository) : V
                     notifications = notifications.toMutableList().apply { set(idx, updated) }
                 }
                 unreadCount = (unreadCount - 1).coerceAtLeast(0)
-            } catch (_: Exception) {}
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                errorMessage = error.message ?: "Не удалось отметить уведомление"
+            }
         }
     }
 
@@ -87,7 +121,10 @@ class NotificationsViewModel(private val repository: NotificationRepository) : V
                 val count = repository.markAllRead()
                 notifications = notifications.map { it.copy(isRead = true) }
                 unreadCount = count
-            } catch (_: Exception) {}
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                errorMessage = error.message ?: "Не удалось отметить уведомления"
+            }
         }
     }
 
@@ -97,7 +134,10 @@ class NotificationsViewModel(private val repository: NotificationRepository) : V
                 repository.delete(notification.id)
                 notifications = notifications.filter { it.id != notification.id }
                 if (!notification.isRead) unreadCount = (unreadCount - 1).coerceAtLeast(0)
-            } catch (_: Exception) {}
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                errorMessage = error.message ?: "Не удалось удалить уведомление"
+            }
         }
     }
 }

@@ -47,7 +47,7 @@ data class MapActivityResponse(
     @SerialName("participantCount") val participantCount: Int = 0,
     @SerialName("participantLimit") val participantLimit: Int? = null,
     @SerialName("distanceMeters") val distanceMeters: Double? = null,
-    @SerialName("imageURL") val imageURL: String? = null,
+    @SerialName("imageUrl") val imageURL: String? = null,
     @SerialName("isJoined") val isJoined: Boolean = false
 ) {
     val parsedCategory: ActivityCategory get() = ActivityCategory.fromApi(category)
@@ -88,6 +88,9 @@ data class CreateActivityRequest(
     @SerialName("latitude") val latitude: Double,
     @SerialName("longitude") val longitude: Double,
     @SerialName("description") val description: String = "",
+    @SerialName("address") val address: String? = null,
+    @SerialName("venueName") val venueName: String? = null,
+    @SerialName("locationVisibility") val locationVisibility: String = "everyone",
     @SerialName("startsAt") val startsAt: String? = null,
     @SerialName("durationMinutes") val durationMinutes: Int = 60,
     @SerialName("showAfter") val showAfter: String? = null,
@@ -95,12 +98,16 @@ data class CreateActivityRequest(
     @SerialName("participantLimit") val participantLimit: Int? = null,
     @SerialName("joinPolicy") val joinPolicy: String = "request",
     @SerialName("ageMin") val ageMin: Int? = null,
+    @SerialName("ageMax") val ageMax: Int? = null,
     @SerialName("skillLevel") val skillLevel: String = "any",
     @SerialName("languages") val languages: List<String> = emptyList(),
     @SerialName("costType") val costType: String = "free",
     @SerialName("costAmountCents") val costAmountCents: Int? = null,
+    @SerialName("costNote") val costNote: String? = null,
     @SerialName("bringItems") val bringItems: List<String> = emptyList(),
-    @SerialName("rules") val rules: List<String> = emptyList()
+    @SerialName("rules") val rules: List<String> = emptyList(),
+    @SerialName("additionalQuestions") val additionalQuestions: List<ActivityQuestion> = emptyList(),
+    @SerialName("status") val status: String = "published"
 )
 
 // ─── Full Activity Model ───────────────────────────────────────
@@ -276,16 +283,27 @@ data class GoNowActivity(
     @SerialName("coordinate") val coordinate: MapCoordinate? = null,
     @SerialName("startsAt") val startsAt: String? = null,
     @SerialName("durationMinutes") val durationMinutes: Int = 60,
+    @SerialName("showAfter") val showAfter: String? = null,
+    @SerialName("hideAfter") val hideAfter: String? = null,
     @SerialName("participantCount") val participantCount: Int = 0,
     @SerialName("participantLimit") val participantLimit: Int? = null,
     @SerialName("joinPolicy") val joinPolicy: String = "request",
+    @SerialName("ageMin") val ageMin: Int? = null,
+    @SerialName("ageMax") val ageMax: Int? = null,
+    @SerialName("languages") val languages: List<String> = emptyList(),
     @SerialName("skillLevel") val skillLevel: String = "any",
     @SerialName("costType") val costType: String = "free",
+    @SerialName("costAmountCents") val costAmountCents: Int? = null,
+    @SerialName("costNote") val costNote: String? = null,
+    @SerialName("bringItems") val bringItems: List<String> = emptyList(),
+    @SerialName("rules") val rules: List<String> = emptyList(),
+    @SerialName("additionalQuestions") val additionalQuestions: List<ActivityQuestion> = emptyList(),
     @SerialName("status") val status: String = "published",
     @SerialName("recruitmentClosed") val recruitmentClosed: Boolean = false,
     @SerialName("isOrganizer") val isOrganizer: Boolean = false,
     @SerialName("applicationStatus") val applicationStatus: String? = null,
-    @SerialName("canAccessChat") val canAccessChat: Boolean = false
+    @SerialName("canAccessChat") val canAccessChat: Boolean = false,
+    @SerialName("chatConversationId") val chatConversationId: String? = null
 ) {
     val parsedCategory: ActivityCategory get() = ActivityCategory.fromApi(category)
     val parsedStatus: ActivityLifecycleStatus get() = ActivityLifecycleStatus.fromApi(status)
@@ -304,8 +322,34 @@ data class ActivityPhotoRef(
 data class ActivityLocationModel(
     @SerialName("coordinate") val coordinate: MapCoordinate,
     @SerialName("address") val address: String? = null,
-    @SerialName("venueName") val venueName: String? = null
+    @SerialName("venueName") val venueName: String? = null,
+    @SerialName("visibility") val visibility: String = "everyone",
+    @SerialName("isExact") val isExact: Boolean = true
 )
+
+@Serializable
+data class ActivityQuestion(
+    @SerialName("id") val id: String = java.util.UUID.randomUUID().toString(),
+    @SerialName("kind") val kind: String = "short_text",
+    @SerialName("prompt") val prompt: String = "",
+    @SerialName("options") val options: List<String> = emptyList(),
+    @SerialName("required") val required: Boolean = false
+)
+
+@Serializable
+data class ActivityApplicationAnswer(
+    @SerialName("questionId") val questionId: String,
+    @SerialName("value") val value: String
+)
+
+@Serializable
+data class CreateApplicationRequest(
+    @SerialName("message") val message: String? = null,
+    @SerialName("answers") val answers: List<ActivityApplicationAnswer> = emptyList()
+)
+
+@Serializable
+data class UpdateApplicationRequest(@SerialName("status") val status: String)
 
 @Serializable
 data class ActivityApplicant(
@@ -323,6 +367,7 @@ data class ActivityApplication(
     @SerialName("applicant") val applicant: ActivityApplicant,
     @SerialName("status") val status: String = "pending",
     @SerialName("message") val message: String? = null,
+    @SerialName("answers") val answers: List<ActivityApplicationAnswer> = emptyList(),
     @SerialName("createdAt") val createdAt: String = ""
 ) {
     val parsedStatus: ActivityApplicationStatus get() = ActivityApplicationStatus.fromApi(status)
@@ -330,6 +375,14 @@ data class ActivityApplication(
 
 @Serializable
 data class UpdateActivityRequest(
+    @SerialName("description") val description: String? = null,
+    @SerialName("latitude") val latitude: Double? = null,
+    @SerialName("longitude") val longitude: Double? = null,
+    @SerialName("address") val address: String? = null,
+    @SerialName("venueName") val venueName: String? = null,
+    @SerialName("startsAt") val startsAt: String? = null,
+    @SerialName("durationMinutes") val durationMinutes: Int? = null,
+    @SerialName("participantLimit") val participantLimit: Int? = null,
     @SerialName("status") val status: String? = null,
     @SerialName("recruitmentClosed") val recruitmentClosed: Boolean? = null
 )
@@ -344,6 +397,8 @@ data class ActivityDraft(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val address: String? = null,
+    val venueName: String? = null,
+    val isExactLocation: Boolean = true,
     val locationVisibility: ActivityLocationVisibility = ActivityLocationVisibility.EVERYONE,
     val startsAt: String = "",
     val durationPreset: ActivityDurationPreset = ActivityDurationPreset.ONE_HOUR,
@@ -355,12 +410,15 @@ data class ActivityDraft(
     val participantLimit: Int? = null,
     val joinPolicy: ActivityJoinPolicy = ActivityJoinPolicy.REQUEST,
     val ageMin: Int? = null,
+    val ageMax: Int? = null,
     val skillLevel: ActivitySkillLevel = ActivitySkillLevel.ANY,
     val languages: MutableList<String> = mutableListOf(),
     val costType: ActivityCostType = ActivityCostType.FREE,
     val costAmountCents: Int? = null,
+    val costNote: String = "",
     val bringItems: MutableList<String> = mutableListOf(),
-    val rules: MutableList<String> = mutableListOf()
+    val rules: MutableList<String> = mutableListOf(),
+    val additionalQuestions: List<ActivityQuestion> = emptyList()
 ) {
     val durationMinutes: Int get() = durationPreset.minutes ?: maxOf(1, customDurationMinutes)
 }

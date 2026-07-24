@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import frezzy.gonow.core.throwIfCancellation
 import kotlin.math.abs
 
 class WeatherViewModel : ViewModel() {
@@ -64,6 +65,7 @@ class WeatherViewModel : ViewModel() {
                     lastRequestTime = now
                 }
             } catch (e: Exception) {
+                e.throwIfCancellation()
                 if (requestId == id) {
                     snapshot = null
                     unavailableReason = when {

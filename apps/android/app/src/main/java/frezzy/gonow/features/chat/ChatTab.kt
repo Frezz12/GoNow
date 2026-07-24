@@ -21,13 +21,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import frezzy.gonow.features.social.SocialSection
+import frezzy.gonow.data.SocialRepository
+import frezzy.gonow.core.MediaCache
 import frezzy.gonow.models.Conversation
 import frezzy.gonow.ui.theme.*
 
 @Composable
-fun ChatTab(chatViewModel: ChatViewModel) {
+fun ChatTab(
+    chatViewModel: ChatViewModel,
+    socialRepository: SocialRepository,
+    mediaCache: MediaCache,
+    onOpenSocial: (SocialSection) -> Unit
+) {
     var showConversation by remember { mutableStateOf<Conversation?>(null) }
-    var showSocialHub by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { chatViewModel.load() }
 
@@ -46,7 +53,7 @@ fun ChatTab(chatViewModel: ChatViewModel) {
                     style = MaterialTheme.typography.headlineLarge,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { showSocialHub = true }) {
+                IconButton(onClick = { onOpenSocial(SocialSection.PEOPLE) }) {
                     Icon(Icons.Filled.People, contentDescription = "Люди", tint = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -59,7 +66,7 @@ fun ChatTab(chatViewModel: ChatViewModel) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { showSocialHub = true },
+                        .clickable { onOpenSocial(SocialSection.INVITATIONS) },
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                 ) {
@@ -95,6 +102,14 @@ fun ChatTab(chatViewModel: ChatViewModel) {
                         }
                     }
                 }
+                chatViewModel.errorMessage != null && chatViewModel.conversations.isEmpty() -> {
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(chatViewModel.errorMessage ?: "Не удалось загрузить чаты", color = MaterialTheme.colorScheme.error)
+                            Button(onClick = chatViewModel::load) { Text("Повторить") }
+                        }
+                    }
+                }
                 chatViewModel.conversations.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -120,19 +135,20 @@ fun ChatTab(chatViewModel: ChatViewModel) {
                     }
                 }
             }
+            if (chatViewModel.errorMessage != null && chatViewModel.conversations.isNotEmpty()) {
+                Text(chatViewModel.errorMessage.orEmpty(), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+            }
         }
     }
 
     showConversation?.let { conv ->
         ConversationSheet(
+            repository = socialRepository,
+            mediaCache = mediaCache,
             conversationId = conv.id,
             title = conv.title,
             onDismiss = { showConversation = null }
         )
-    }
-
-    if (showSocialHub) {
-        SocialHubSheet(onDismiss = { showSocialHub = false })
     }
 }
 

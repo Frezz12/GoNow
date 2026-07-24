@@ -20,13 +20,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import frezzy.gonow.models.GoNowNotification
 import frezzy.gonow.models.NotificationCategory
+import frezzy.gonow.models.NotificationFilter
+import frezzy.gonow.models.NotificationDestination
+import frezzy.gonow.data.NotificationRepository
 import frezzy.gonow.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationsSheet(onDismiss: () -> Unit) {
+fun NotificationsSheet(
+    viewModel: NotificationsViewModel,
+    onDestination: (NotificationDestination) -> Unit,
+    onDismiss: () -> Unit
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -35,21 +42,16 @@ fun NotificationsSheet(onDismiss: () -> Unit) {
         containerColor = Background,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
-        NotificationsContent(onDismiss = onDismiss)
+        NotificationsContent(viewModel = viewModel, onDestination = onDestination, onDismiss = onDismiss)
     }
 }
 
 @Composable
-private fun NotificationsContent(onDismiss: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val viewModel = remember {
-        NotificationsViewModel(
-            frezzy.gonow.data.NotificationRepository(
-                frezzy.gonow.network.ApiClient(frezzy.gonow.data.TokenStore(context.applicationContext))
-            )
-        )
-    }
-
+private fun NotificationsContent(
+    viewModel: NotificationsViewModel,
+    onDestination: (NotificationDestination) -> Unit,
+    onDismiss: () -> Unit
+) {
     LaunchedEffect(Unit) { viewModel.load() }
 
     Column(
@@ -88,6 +90,16 @@ private fun NotificationsContent(onDismiss: () -> Unit) {
                     CircularProgressIndicator()
                 }
             }
+            viewModel.errorMessage != null && viewModel.notifications.isEmpty() -> {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(viewModel.errorMessage ?: "Не удалось загрузить уведомления", color = MaterialTheme.colorScheme.error)
+                    Button(onClick = viewModel::load) { Text("Повторить") }
+                }
+            }
             viewModel.filteredNotifications.isEmpty() -> {
                 Box(modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -108,25 +120,44 @@ private fun NotificationsContent(onDismiss: () -> Unit) {
                     if (viewModel.todayNotifications.isNotEmpty()) {
                         item { Text("Сегодня", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 4.dp)) }
                         items(viewModel.todayNotifications, key = { it.id }) { notif ->
-                            NotificationRow(notification = notif, onRead = { viewModel.markRead(notif) }, onDelete = { viewModel.delete(notif) })
+                            NotificationRow(
+                                notification = notif,
+                                onOpen = {
+                                    viewModel.markRead(notif)
+                                    notif.destination?.let(onDestination)
+                                    if (notif.destination != null) onDismiss()
+                                },
+                                onDelete = { viewModel.delete(notif) }
+                            )
                         }
                     }
                     if (viewModel.earlierNotifications.isNotEmpty()) {
                         item { Text("Ранее", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 4.dp)) }
                         items(viewModel.earlierNotifications, key = { it.id }) { notif ->
-                            NotificationRow(notification = notif, onRead = { viewModel.markRead(notif) }, onDelete = { viewModel.delete(notif) })
+                            NotificationRow(
+                                notification = notif,
+                                onOpen = {
+                                    viewModel.markRead(notif)
+                                    notif.destination?.let(onDestination)
+                                    if (notif.destination != null) onDismiss()
+                                },
+                                onDelete = { viewModel.delete(notif) }
+                            )
                         }
                     }
                 }
             }
         }
+        if (viewModel.errorMessage != null && viewModel.notifications.isNotEmpty()) {
+            Text(viewModel.errorMessage.orEmpty(), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        }
     }
 }
 
 @Composable
-private fun NotificationRow(notification: GoNowNotification, onRead: () -> Unit, onDelete: () -> Unit) {
+private fun NotificationRow(notification: GoNowNotification, onOpen: () -> Unit, onDelete: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 6.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -166,6 +197,9 @@ private fun NotificationRow(notification: GoNowNotification, onRead: () -> Unit,
             Box(
                 modifier = Modifier.padding(top = 4.dp).size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary)
             )
+        }
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.DeleteOutline, contentDescription = "Удалить", modifier = Modifier.size(18.dp))
         }
     }
 }

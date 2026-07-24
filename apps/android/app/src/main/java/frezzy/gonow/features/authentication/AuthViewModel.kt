@@ -1,13 +1,17 @@
 package frezzy.gonow.features.authentication
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import frezzy.gonow.data.AuthRepository
+import frezzy.gonow.core.MediaCache
+import frezzy.gonow.core.throwIfCancellation
 import frezzy.gonow.models.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 data class AuthUiState(
     val phase: AuthPhase = AuthPhase.Launching,
@@ -18,6 +22,7 @@ data class AuthUiState(
     val fieldErrors: Map<String, String> = emptyMap(),
     val pendingVerificationEmail: String? = null,
     val pendingDisplayName: String = "",
+    val pendingUsername: String = "",
     val pendingPassword: String = "",
     val verificationCode: String = "",
     val showPasswordRecovery: Boolean = false,
@@ -26,32 +31,42 @@ data class AuthUiState(
     val newPassword: String = "",
     val newConfirmation: String = "",
     val isRecoveryCodeSent: Boolean = false,
-    // Profile
+    val usernameAvailability: UsernameAvailability? = null,
+    val isCheckingUsername: Boolean = false
+)
+
+data class ProfileMediaUiState(
     val profilePhotos: ProfilePhotos = ProfilePhotos(),
     val avatarBytes: ByteArray? = null,
-    val photoContentMap: Map<String, ByteArray> = emptyMap()
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is AuthUiState) return false
-        return phase == other.phase && isLoginMode == other.isLoginMode && isLoading == other.isLoading
-            && user == other.user && errorMessage == other.errorMessage && fieldErrors == other.fieldErrors
-            && pendingVerificationEmail == other.pendingVerificationEmail
-            && showPasswordRecovery == other.showPasswordRecovery
-            && isRecoveryCodeSent == other.isRecoveryCodeSent
-            && profilePhotos == other.profilePhotos
-            && photoContentMap == other.photoContentMap
-            && avatarBytes?.contentEquals(other.avatarBytes ?: ByteArray(0)) == true
-    }
-    override fun hashCode(): Int = phase.hashCode()
-}
+    val photoContentFiles: Map<String, String> = emptyMap(),
+    val unavailablePhotoIds: Set<String> = emptySet()
+)
 
-class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
+class AuthViewModel(
+    private val authRepository: AuthRepository,
+    private val mediaCache: MediaCache
+) : ViewModel() {
 
-    var uiState by mutableStateOf(AuthUiState())
-        private set
+    private val mutableUiState = MutableStateFlow(AuthUiState())
+    val uiStateFlow = mutableUiState.asStateFlow()
+    private var uiState: AuthUiState
+        get() = mutableUiState.value
+        set(value) { mutableUiState.value = value }
+
+    private val mutableProfileMediaState = MutableStateFlow(ProfileMediaUiState())
+    val profileMediaStateFlow = mutableProfileMediaState.asStateFlow()
+    private var profileMediaState: ProfileMediaUiState
+        get() = mutableProfileMediaState.value
+        set(value) { mutableProfileMediaState.value = value }
+
+    private var usernameCheckJob: Job? = null
 
     init { restoreSession() }
+
+    fun retrySessionRestore() {
+        uiState = uiState.copy(phase = AuthPhase.Launching, errorMessage = null)
+        restoreSession()
+    }
 
     private fun restoreSession() {
         viewModelScope.launch {
@@ -63,8 +78,12 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
                 } else {
                     uiState = uiState.copy(phase = AuthPhase.Unauthenticated)
                 }
-            } catch (_: Exception) {
-                uiState = uiState.copy(phase = AuthPhase.Unauthenticated)
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                uiState = uiState.copy(
+                    phase = AuthPhase.RestoreFailed(error.message ?: "Нет соединения с сервером"),
+                    errorMessage = error.message
+                )
             }
         }
     }
@@ -82,19 +101,65 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
                 uiState = uiState.copy(phase = AuthPhase.Authenticated, user = user, isLoading = false)
                 reloadProfileMedia()
             } catch (e: ApiError) { handleApiError(e) }
-            catch (_: Exception) { uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
+            catch (error: Exception) { error.throwIfCancellation(); uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
         }
     }
 
-    fun register(name: String, email: String, password: String, confirmPassword: String) {
-        if (!validateRegister(name, email, password, confirmPassword)) return
+    fun register(name: String, username: String, email: String, password: String, confirmPassword: String) {
+        if (!validateRegister(name, username, email, password, confirmPassword)) return
         viewModelScope.launch {
             uiState = uiState.copy(isLoading = true, errorMessage = null, fieldErrors = emptyMap())
             try {
-                val data = authRepository.register(name, email, password)
-                uiState = uiState.copy(isLoading = false, pendingVerificationEmail = data.email, pendingDisplayName = name.trim(), pendingPassword = password, verificationCode = "")
+                val normalizedUsername = UsernameRules.normalize(username)
+                val data = authRepository.register(name, normalizedUsername, email, password)
+                uiState = uiState.copy(
+                    isLoading = false,
+                    pendingVerificationEmail = data.email,
+                    pendingDisplayName = name.trim(),
+                    pendingUsername = normalizedUsername,
+                    pendingPassword = password,
+                    verificationCode = ""
+                )
             } catch (e: ApiError) { handleApiError(e) }
-            catch (_: Exception) { uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
+            catch (error: Exception) { error.throwIfCancellation(); uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
+        }
+    }
+
+    fun checkUsername(value: String) {
+        usernameCheckJob?.cancel()
+        val username = UsernameRules.normalize(value)
+        val validationError = UsernameRules.validationMessage(username)
+        if (validationError != null) {
+            uiState = uiState.copy(
+                usernameAvailability = null,
+                isCheckingUsername = false,
+                fieldErrors = uiState.fieldErrors + ("username" to validationError)
+            )
+            return
+        }
+        uiState = uiState.copy(
+            usernameAvailability = null,
+            isCheckingUsername = true,
+            fieldErrors = uiState.fieldErrors - "username"
+        )
+        usernameCheckJob = viewModelScope.launch {
+            delay(350)
+            try {
+                val result = authRepository.usernameAvailability(username)
+                uiState = uiState.copy(
+                    usernameAvailability = result,
+                    isCheckingUsername = false,
+                    fieldErrors = if (result.available) {
+                        uiState.fieldErrors - "username"
+                    } else {
+                        uiState.fieldErrors + ("username" to (result.message ?: "Этот username уже занят"))
+                    }
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                uiState = uiState.copy(isCheckingUsername = false)
+            }
         }
     }
 
@@ -111,7 +176,7 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
                 uiState = uiState.copy(phase = AuthPhase.Authenticated, user = user, isLoading = false, pendingVerificationEmail = null)
                 reloadProfileMedia()
             } catch (e: ApiError) { uiState = uiState.copy(isLoading = false, errorMessage = e.message) }
-            catch (_: Exception) { uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
+            catch (error: Exception) { error.throwIfCancellation(); uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
         }
     }
 
@@ -131,7 +196,7 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
             uiState = uiState.copy(isLoading = true, errorMessage = null)
             try { authRepository.requestPasswordReset(email); uiState = uiState.copy(isLoading = false, isRecoveryCodeSent = true) }
             catch (e: ApiError) { uiState = uiState.copy(isLoading = false, errorMessage = e.message) }
-            catch (_: Exception) { uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
+            catch (error: Exception) { error.throwIfCancellation(); uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
         }
     }
 
@@ -147,18 +212,19 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
                 uiState = uiState.copy(phase = AuthPhase.Authenticated, user = user, isLoading = false, showPasswordRecovery = false)
                 reloadProfileMedia()
             } catch (e: ApiError) { uiState = uiState.copy(isLoading = false, errorMessage = e.message) }
-            catch (_: Exception) { uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
+            catch (error: Exception) { error.throwIfCancellation(); uiState = uiState.copy(isLoading = false, errorMessage = "Проверьте подключение к сети") }
         }
     }
 
     fun resendVerificationCode() {
         val email = uiState.pendingVerificationEmail ?: return
         val name = uiState.pendingDisplayName.ifEmpty { "User" }
+        val username = uiState.pendingUsername
         val password = uiState.pendingPassword.ifEmpty { "resend-placeholder-8" }
         viewModelScope.launch {
             uiState = uiState.copy(isLoading = true, errorMessage = null)
-            try { authRepository.register(name, email, password); uiState = uiState.copy(isLoading = false, errorMessage = "Код отправлен повторно") }
-            catch (_: Exception) { uiState = uiState.copy(isLoading = false, errorMessage = "Не удалось отправить код. Попробуйте позже.") }
+            try { authRepository.register(name, username, email, password); uiState = uiState.copy(isLoading = false, errorMessage = "Код отправлен повторно") }
+            catch (error: Exception) { error.throwIfCancellation(); uiState = uiState.copy(isLoading = false, errorMessage = "Не удалось отправить код. Попробуйте позже.") }
         }
     }
 
@@ -170,7 +236,13 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
             try {
                 val user = authRepository.currentUser()
                 uiState = uiState.copy(user = user, isLoading = false)
-            } catch (_: Exception) { uiState = uiState.copy(isLoading = false) }
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                uiState = uiState.copy(
+                    isLoading = false,
+                    errorMessage = error.message ?: "Не удалось обновить профиль"
+                )
+            }
         }
     }
 
@@ -181,7 +253,7 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
                 val user = authRepository.updateProfile(request)
                 uiState = uiState.copy(user = user, isLoading = false)
             } catch (e: ApiError) { uiState = uiState.copy(isLoading = false, errorMessage = e.message) }
-            catch (_: Exception) { uiState = uiState.copy(isLoading = false, errorMessage = "Не удалось сохранить профиль") }
+            catch (error: Exception) { error.throwIfCancellation(); uiState = uiState.copy(isLoading = false, errorMessage = "Не удалось сохранить профиль") }
         }
     }
 
@@ -189,13 +261,33 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
         viewModelScope.launch {
             try {
                 val media = authRepository.getProfilePhotos()
-                val avatar = media.avatar?.let { authRepository.getPhotoContent(it.id) }
                 // Keep only content for photos still in the list
-                val validIds = media.photos.map { it.id }.toSet() + media.avatar?.id
-                val filteredContent = uiState.photoContentMap.filter { it.key in validIds }
-                uiState = uiState.copy(profilePhotos = media, avatarBytes = avatar, photoContentMap = filteredContent)
+                val validIds = (
+                    media.photos.map { it.id } +
+                        media.avatars.map { it.id } +
+                        listOfNotNull(media.avatar?.id)
+                    ).toSet()
+                val filteredContent = profileMediaState.photoContentFiles.filter { it.key in validIds }
+                profileMediaState = ProfileMediaUiState(
+                    profilePhotos = media,
+                    avatarBytes = profileMediaState.avatarBytes,
+                    photoContentFiles = filteredContent,
+                    unavailablePhotoIds = profileMediaState.unavailablePhotoIds.intersect(validIds)
+                )
+                media.avatar?.let { photo ->
+                    try {
+                        val avatar = mediaCache.get(photo.contentPath) {
+                            authRepository.getPhotoContent(photo.id)
+                        }
+                        profileMediaState = profileMediaState.copy(avatarBytes = avatar)
+                    } catch (error: Exception) {
+                        error.throwIfCancellation()
+                        // Media storage may be unavailable while the core API remains healthy.
+                    }
+                }
             } catch (e: Exception) {
-                uiState = uiState.copy(profilePhotos = ProfilePhotos(), avatarBytes = null, photoContentMap = emptyMap())
+                e.throwIfCancellation()
+                uiState = uiState.copy(errorMessage = e.message ?: "Не удалось загрузить медиа профиля")
             }
         }
     }
@@ -205,8 +297,8 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
             try {
                 authRepository.uploadAvatar(imageBytes)
                 reloadProfileMedia()
-            } catch (e: ApiError) { uiState = uiState.copy(errorMessage = e.message) }
-            catch (_: Exception) { uiState = uiState.copy(errorMessage = "Не удалось загрузить аватар") }
+            } catch (e: ApiError) { uiState = uiState.copy(errorMessage = mediaUploadMessage(e)) }
+            catch (error: Exception) { error.throwIfCancellation(); uiState = uiState.copy(errorMessage = "Не удалось загрузить аватар") }
         }
     }
 
@@ -215,8 +307,8 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
             try {
                 authRepository.uploadPhoto(imageBytes)
                 reloadProfileMedia()
-            } catch (e: ApiError) { uiState = uiState.copy(errorMessage = e.message) }
-            catch (_: Exception) { uiState = uiState.copy(errorMessage = "Не удалось загрузить фото") }
+            } catch (e: ApiError) { uiState = uiState.copy(errorMessage = mediaUploadMessage(e)) }
+            catch (error: Exception) { error.throwIfCancellation(); uiState = uiState.copy(errorMessage = "Не удалось загрузить фото") }
         }
     }
 
@@ -225,25 +317,93 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
             try {
                 authRepository.deletePhoto(photoId)
                 reloadProfileMedia()
-            } catch (_: Exception) { }
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                uiState = uiState.copy(
+                    errorMessage = error.message ?: "Не удалось удалить фотографию"
+                )
+            }
         }
     }
 
-    fun loadPhotoContent(photoId: String) {
-        if (uiState.photoContentMap.containsKey(photoId)) return
-        val photo = uiState.profilePhotos.photos.find { it.id == photoId } ?: return
+    fun updatePhotoDescription(photoId: String, description: String?) {
         viewModelScope.launch {
             try {
-                val bytes = authRepository.getPhotoContent(photoId)
-                uiState = uiState.copy(photoContentMap = uiState.photoContentMap + (photoId to bytes))
-            } catch (_: Exception) { }
+                val updated = authRepository.updatePhotoDescription(photoId, description)
+                replaceProfilePhoto(updated)
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                uiState = uiState.copy(errorMessage = error.message ?: "Не удалось сохранить описание")
+            }
         }
     }
+
+    fun togglePhotoLike(photoId: String) {
+        val photo = (profileMediaState.profilePhotos.photos + profileMediaState.profilePhotos.avatars)
+            .firstOrNull { it.id == photoId } ?: return
+        viewModelScope.launch {
+            try {
+                val engagement = authRepository.setPhotoLiked(photoId, !photo.isLiked)
+                replaceProfilePhoto(photo.copy(likeCount = engagement.likeCount, isLiked = engagement.isLiked))
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                uiState = uiState.copy(errorMessage = error.message ?: "Не удалось изменить отметку")
+            }
+        }
+    }
+
+    private fun replaceProfilePhoto(updated: ProfilePhoto) {
+        val media = profileMediaState.profilePhotos
+        profileMediaState = profileMediaState.copy(
+            profilePhotos = media.copy(
+                avatar = media.avatar?.let { if (it.id == updated.id) updated else it },
+                avatars = media.avatars.map { if (it.id == updated.id) updated else it },
+                photos = media.photos.map { if (it.id == updated.id) updated else it }
+            )
+        )
+    }
+
+    fun loadPhotoContent(photoId: String) {
+        if (profileMediaState.photoContentFiles.containsKey(photoId)) return
+        val photo = (
+            profileMediaState.profilePhotos.photos +
+                profileMediaState.profilePhotos.avatars +
+                listOfNotNull(profileMediaState.profilePhotos.avatar)
+        ).firstOrNull { it.id == photoId } ?: return
+        profileMediaState = profileMediaState.copy(
+            unavailablePhotoIds = profileMediaState.unavailablePhotoIds - photoId
+        )
+        viewModelScope.launch {
+            try {
+                val file = mediaCache.file(photo.contentPath) { authRepository.getPhotoContent(photoId) }
+                profileMediaState = profileMediaState.copy(
+                    photoContentFiles = profileMediaState.photoContentFiles + (photoId to file.absolutePath)
+                )
+            } catch (error: Exception) {
+                error.throwIfCancellation()
+                profileMediaState = profileMediaState.copy(
+                    unavailablePhotoIds = profileMediaState.unavailablePhotoIds + photoId
+                )
+            }
+        }
+    }
+
+    private fun mediaUploadMessage(error: ApiError): String =
+        if (error is ApiError.Server && error.error.code == "OBJECT_STORAGE_UNAVAILABLE") {
+            "Хранилище фотографий не запущено на локальном сервере."
+        } else {
+            error.message ?: "Не удалось загрузить фотографию"
+        }
 
     fun logout() {
         viewModelScope.launch {
             authRepository.logout()
-            uiState = AuthUiState(phase = AuthPhase.Unauthenticated)
+            try {
+                mediaCache.clear()
+            } finally {
+                uiState = AuthUiState(phase = AuthPhase.Unauthenticated)
+                profileMediaState = ProfileMediaUiState()
+            }
         }
     }
 
@@ -263,9 +423,13 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
         if (errors.isNotEmpty()) { uiState = uiState.copy(fieldErrors = errors); return false }; return true
     }
 
-    private fun validateRegister(name: String, email: String, password: String, confirmPassword: String): Boolean {
+    private fun validateRegister(name: String, username: String, email: String, password: String, confirmPassword: String): Boolean {
         val errors = mutableMapOf<String, String>()
         if (name.trim().length < 2) errors["name"] = "Введите имя не короче 2 символов"
+        UsernameRules.validationMessage(username)?.let { errors["username"] = it }
+        if (uiState.usernameAvailability?.available == false) {
+            errors["username"] = uiState.usernameAvailability?.message ?: "Этот username уже занят"
+        }
         if (!isValidEmail(email)) errors["email"] = "Введите корректный email"
         validatePassword(password)?.let { errors["password"] = it }
         if (password != confirmPassword) errors["confirmPassword"] = "Пароли не совпадают"

@@ -15,6 +15,7 @@ data class RegisterRequest(
     @SerialName("email") val email: String,
     @SerialName("password") val password: String,
     @SerialName("displayName") val displayName: String,
+    @SerialName("username") val username: String,
     @SerialName("device") val device: DevicePayload
 )
 
@@ -79,4 +80,22 @@ sealed class AuthPhase {
     data object Launching : AuthPhase()
     data object Unauthenticated : AuthPhase()
     data object Authenticated : AuthPhase()
+    data class RestoreFailed(val reason: String) : AuthPhase()
+}
+
+object UsernameRules {
+    private val reserved = setOf("admin", "administrator", "support", "gonow", "official", "system")
+    private val allowed = Regex("^[a-z][a-z0-9_]{4,31}$")
+
+    fun normalize(value: String): String = value.trim().trimStart('@').lowercase()
+
+    fun validationMessage(value: String): String? {
+        val username = normalize(value)
+        if (username.length !in 5..32) return "Username должен содержать от 5 до 32 символов"
+        if (!allowed.matches(username)) {
+            return "Используйте латинские буквы, цифры и знак подчёркивания; первый символ — буква"
+        }
+        if (username in reserved) return "Этот username зарезервирован"
+        return null
+    }
 }

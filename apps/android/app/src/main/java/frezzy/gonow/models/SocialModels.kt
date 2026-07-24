@@ -4,6 +4,20 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+enum class SocialPrivacy {
+    @SerialName("everyone") EVERYONE,
+    @SerialName("friends") FRIENDS,
+    @SerialName("verified") VERIFIED,
+    @SerialName("nobody") NOBODY
+}
+
+@Serializable
+data class SocialPrivacySettings(
+    @SerialName("messagePrivacy") val messagePrivacy: SocialPrivacy = SocialPrivacy.EVERYONE,
+    @SerialName("invitationPrivacy") val invitationPrivacy: SocialPrivacy = SocialPrivacy.EVERYONE
+)
+
+@Serializable
 data class SocialUser(
     @SerialName("id") val id: String,
     @SerialName("displayName") val displayName: String,
@@ -21,6 +35,24 @@ data class SocialUser(
     val isFriend: Boolean get() = friendshipStatus == "accepted"
     val hasPendingRequest: Boolean get() = friendshipStatus == "pending"
 }
+
+@Serializable
+data class PublicUserProfile(
+    @SerialName("id") val id: String,
+    @SerialName("displayName") val displayName: String,
+    @SerialName("username") val username: String,
+    @SerialName("age") val age: Int? = null,
+    @SerialName("city") val city: String? = null,
+    @SerialName("occupation") val occupation: String? = null,
+    @SerialName("relationshipStatus") val relationshipStatus: String? = null,
+    @SerialName("bio") val bio: String? = null,
+    @SerialName("interests") val interests: List<String> = emptyList(),
+    @SerialName("languages") val languages: List<String> = emptyList(),
+    @SerialName("availability") val availability: String? = null,
+    @SerialName("preferredGroupSize") val preferredGroupSize: String? = null,
+    @SerialName("rating") val rating: Double = 5.0,
+    @SerialName("distanceKm") val distanceKm: Double? = null
+)
 
 @Serializable
 data class Conversation(
@@ -56,6 +88,14 @@ data class ChatMessage(
     val isProposal: Boolean get() = kind == "placeProposal" || kind == "timeProposal"
     val isAttachment: Boolean get() = kind in listOf("image", "video", "file", "audio", "voice")
 }
+
+@Serializable
+data class ChatRealtimeEvent(
+    @SerialName("event") val event: String,
+    @SerialName("conversationId") val conversationId: String,
+    @SerialName("messageId") val messageId: String? = null,
+    @SerialName("userId") val userId: String? = null
+)
 
 @Serializable
 data class MeetingInvitation(

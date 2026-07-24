@@ -8,12 +8,16 @@ data class User(
     @SerialName("id") val id: String,
     @SerialName("email") val email: String,
     @SerialName("displayName") val displayName: String,
+    @SerialName("username") val username: String = "",
     @SerialName("emailVerified") val emailVerified: Boolean,
     @SerialName("birthDate") val birthDate: String? = null,
     @SerialName("city") val city: String? = null,
     @SerialName("occupation") val occupation: String? = null,
     @SerialName("bio") val bio: String? = null,
     @SerialName("interests") val interests: List<String>? = null,
+    @SerialName("languages") val languages: List<String>? = null,
+    @SerialName("availability") val availability: String? = null,
+    @SerialName("preferredGroupSize") val preferredGroupSize: String? = null,
     @SerialName("rating") val rating: Double? = null,
     @SerialName("relationshipStatus") val relationshipStatus: String? = null,
     @SerialName("locationLabel") val locationLabel: String? = null,
@@ -111,11 +115,15 @@ private fun ruYears(n: Int): String {
 @Serializable
 data class UpdateProfileRequest(
     @SerialName("displayName") val displayName: String,
+    @SerialName("username") val username: String = "",
     @SerialName("birthDate") val birthDate: String? = null,
     @SerialName("city") val city: String? = null,
     @SerialName("occupation") val occupation: String? = null,
     @SerialName("bio") val bio: String? = null,
     @SerialName("interests") val interests: List<String> = emptyList(),
+    @SerialName("languages") val languages: List<String> = emptyList(),
+    @SerialName("availability") val availability: String? = null,
+    @SerialName("preferredGroupSize") val preferredGroupSize: String? = null,
     @SerialName("relationshipStatus") val relationshipStatus: String? = null,
     @SerialName("locationLabel") val locationLabel: String? = null,
     @SerialName("latitude") val latitude: Double? = null,
@@ -129,18 +137,34 @@ data class ProfilePhoto(
     @SerialName("contentType") val contentType: String,
     @SerialName("bytes") val bytes: Long,
     @SerialName("createdAt") val createdAt: String,
-    @SerialName("contentPath") val contentPath: String
+    @SerialName("contentPath") val contentPath: String,
+    @SerialName("isAvatar") val isAvatar: Boolean = false,
+    @SerialName("isCurrentAvatar") val isCurrentAvatar: Boolean = false,
+    @SerialName("description") val description: String? = null,
+    @SerialName("likeCount") val likeCount: Int = 0,
+    @SerialName("isLiked") val isLiked: Boolean = false
 )
 
 @Serializable
 data class ProfilePhotos(
     @SerialName("avatar") val avatar: ProfilePhoto? = null,
+    @SerialName("avatars") val avatars: List<ProfilePhoto> = emptyList(),
     @SerialName("photos") val photos: List<ProfilePhoto> = emptyList()
+)
+
+@Serializable
+data class UpdatePhotoRequest(@SerialName("description") val description: String? = null)
+
+@Serializable
+data class PhotoEngagement(
+    @SerialName("photoId") val photoId: String,
+    @SerialName("likeCount") val likeCount: Int,
+    @SerialName("isLiked") val isLiked: Boolean
 )
 
 @Serializable
 data class UsernameAvailability(
     @SerialName("username") val username: String,
     @SerialName("available") val available: Boolean,
-    @SerialName("message") val message: String = ""
+    @SerialName("message") val message: String? = null
 )
